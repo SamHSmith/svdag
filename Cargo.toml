@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 num-traits = "0.2.11"
+image = "0.23.3"
 antelope = { path = "../antelope" }
 
 [lib]
