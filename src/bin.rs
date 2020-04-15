@@ -8,7 +8,7 @@ use lib::*;
 
 const EPSILON: f64 = 0.0001;
 
-fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> bool {
+fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> f64 {
     let t1 = (size * -0.5 - start.x) / dir.x;
     let t2 = (size * 0.5 - start.x) / dir.x;
 
@@ -34,12 +34,14 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> bool {
     let pos5 = start + dir * t5;
     let pos6 = start + dir * t6;
 
-    inbox(pos1.x, pos1.y, pos1.z, size)
-        || inbox(pos2.x, pos2.y, pos2.z, size)
-        || inbox(pos3.x, pos3.y, pos3.z, size)
-        || inbox(pos4.x, pos4.y, pos4.z, size)
-        || inbox(pos5.x, pos5.y, pos5.z, size)
-        || inbox(pos6.x, pos6.y, pos6.z, size)
+    let b1 = (1.0 - inbox(pos1.x, pos1.y, pos1.z, size) as i64 as f64) * std::f64::MAX;
+    let b2 = (1.0 - inbox(pos2.x, pos2.y, pos2.z, size) as i64 as f64) * std::f64::MAX;
+    let b3 = (1.0 - inbox(pos3.x, pos3.y, pos3.z, size) as i64 as f64) * std::f64::MAX;
+    let b4 = (1.0 - inbox(pos4.x, pos4.y, pos4.z, size) as i64 as f64) * std::f64::MAX;
+    let b5 = (1.0 - inbox(pos5.x, pos5.y, pos5.z, size) as i64 as f64) * std::f64::MAX;
+    let b6 = (1.0 - inbox(pos6.x, pos6.y, pos6.z, size) as i64 as f64) * std::f64::MAX;
+
+    (b1 + t1).min((b2 + t2).min((b3 + t3).min((b4 + t4).min((b5 + t5).min(b6 + t6)))))
 }
 
 fn cast_ray_voxel(
@@ -56,25 +58,40 @@ fn cast_ray_voxel(
 
     let mut x = 0;
     while x < activenodes.len() {
+        let mut hits: Vec<f64> = Vec::new();
+        let mut targets: Vec<(f64, (&VoxelNode, Vector3<f64>))> = Vec::new();
         for i in 0..activenodes.len() {
-            if cast_ray_v_box(start - nodelocations[i], dir, size) {
-                if activenodes[i].flags & 1 != 0 {
-                    //leaf
-                    return activenodes[i].colour;
-                } else {
-                    for c in 0..8 {
-                        let child: u8 = 1 << c;
+            let hit = cast_ray_v_box(start - nodelocations[i], dir, size);
+            hits.push(hit);
+            targets.push((hit, (activenodes[i], nodelocations[i])));
 
-                        if activenodes[i].childmask & child != 0 {
-                            nodelocations
-                                .push(nodelocations[i] + (oct_byte_to_vec(child) * size / 2.0));
-                            activenodes.push(activenodes[i].get_child(tree, c));
-                        }
+            x += 1;
+        }
+        let hit = hits.iter().cloned().fold(0. / 0., f64::min);
+        if (hit.is_normal() && hit < std::f64::MAX) {
+            let mut hitnode = (targets[0].1).0;
+            let mut hitlocation = (targets[0].1).1;
+            for (h, (node, location)) in targets {
+                if h == hit {
+                    hitnode = node;
+                    hitlocation = location;
+                }
+            }
+            if hitnode.flags & 1 != 0 {
+                //leaf
+                return hitnode.colour;
+            } else {
+                for c in 0..8 {
+                    let child: u8 = 1 << c;
+
+                    if hitnode.childmask & child != 0 {
+                        nodelocations.push(hitlocation + (oct_byte_to_vec(child) * size / 2.0));
+                        activenodes.push(hitnode.get_child(tree, c));
                     }
                 }
             }
-            x += 1;
         }
+
         activenodes.drain(0..x);
         nodelocations.drain(0..x);
         x = 0;
@@ -89,6 +106,7 @@ fn new_vec(x: f64, y: f64, z: f64) -> Vector3<f64> {
 }
 
 fn main() {
+
     let mut tree = allocate(500);
     let node: &mut VoxelNode = tree.allocate_and_get_node();
     node.put_child(0, tree.allocate_node());
@@ -103,8 +121,8 @@ fn main() {
     node2.get_child(tree, 1).flags = 1;
     node2.get_child(tree, 1).colour = [200, 183, 235];
 
-    let width: u32 = 1024;
-    let height: u32 = 1024;
+    let width: u32 = 256;
+    let height: u32 = 256;
 
     let campos = new_vec(2.0, -1.5, -3.5);
     let camrot = new_vec(-20.0, -20.0, 0.0);
@@ -117,6 +135,8 @@ fn main() {
     let cubepos = new_vec(0.0, 1.0, 0.0);
 
     let mut buffer: Vec<u8> = vec![0; (width * height * 3) as usize]; // Generate the image data;
+
+    let startcpu = std::time::Instant::now();
 
     for x in 0..width {
         for y in 0..height {
@@ -137,11 +157,17 @@ fn main() {
         }
     }
 
+    let cpuend = std::time::Instant::now();
+
     // Save the buffer as "image.png"
     image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(width, height, &buffer[..])
         .unwrap()
         .save("image.png")
         .unwrap();
+
+    println!("Cpu took {} ms", (cpuend - startcpu).as_millis());
+
+    
 
     use image::ImageBuffer;
     use image::Rgba;
@@ -194,8 +220,8 @@ fn main() {
     let image = StorageImage::new(
         device.clone(),
         Dimensions::Dim2d {
-            width: 1024,
-            height: 1024,
+            width,
+            height,
         },
         Format::R8G8B8A8Unorm,
         Some(queue.family()),
@@ -294,7 +320,7 @@ void main() {
         device.clone(),
         BufferUsage::all(),
         false,
-        (0..1024 * 1024 * 4).map(|_| 0u8),
+        (0..width * height * 4).map(|_| 0u8),
     )
     .expect("failed to create buffer");
 
@@ -327,10 +353,12 @@ void main() {
         _dummy2: [0; 8],
     };
 
+    let gpustart = std::time::Instant::now();
+
     let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
         .unwrap()
         .dispatch(
-            [1024 / 8, 1024 / 8, 1],
+            [width / 8, height / 8, 1],
             compute_pipeline.clone(),
             set.clone(),
             push_constants,
@@ -348,9 +376,13 @@ void main() {
         .wait(None)
         .unwrap();
 
+    let gpuend = std::time::Instant::now();
+
     let buffer_content = buf.read().unwrap();
-    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(1024, 1024, &buffer_content[..]).unwrap();
+    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, &buffer_content[..]).unwrap();
     image.save("image2.png").unwrap();
+
+    println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
 
     return;
 
