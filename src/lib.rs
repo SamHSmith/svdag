@@ -8,7 +8,7 @@ mod tests {
 
 #[derive(Copy, Clone)]
 pub struct VoxelTree {
-    base: *mut u32,
+    pub base: *mut u32,
     allocator: *mut u32,
 }
 
@@ -63,7 +63,7 @@ impl VoxelNode {
                 let mut moving = false;
                 let mut holding = childptr;
 
-                ptr = ptr.offset(8);
+                ptr = ptr.offset(2);
                 loop {
                     if (select & child) != 0 {
                         moving = true;
@@ -75,9 +75,9 @@ impl VoxelNode {
                             let h = *ptr;
                             *ptr = holding;
                             holding = h;
-                            ptr = ptr.offset(4);
+                            ptr = ptr.offset(1);
                         } else {
-                            ptr = ptr.offset(4);
+                            ptr = ptr.offset(1);
                         }
                     }
 
@@ -102,14 +102,14 @@ impl VoxelNode {
         let mut select: u8 = 1;
         let mut ptr: *mut u32 = &self.childmask as *const u8 as *mut u32;
         unsafe {
-            ptr = ptr.offset(8);
+            ptr = ptr.offset(2);
             loop {
                 if (select & child) != 0 {
                     return *ptr;
                 }
 
                 if (self.childmask & select) != 0 {
-                    ptr = ptr.offset(4);
+                    ptr = ptr.offset(1);
                 }
                 select = select << 1;
             }

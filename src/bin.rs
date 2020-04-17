@@ -1,6 +1,6 @@
 use antelope::camera::RenderCamera;
 use antelope::cgmath::prelude::One;
-use antelope::cgmath::{Deg, Euler, Matrix4, Quaternion, Vector3};
+use antelope::cgmath::{Deg, Euler, Matrix4, Quaternion, Vector3, Vector4};
 use antelope::mesh::{Mesh, MeshCreateInfo, MeshFactory, PostVertex, RenderInfo, Vertex};
 use antelope::window::{DemoTriangleRenderer, Frame, TriangleFrame, Window};
 use antelope::{MeshFrame, MeshRenderer};
@@ -41,7 +41,7 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> f64 {
     let b5 = (1.0 - inbox(pos5.x, pos5.y, pos5.z, size) as i64 as f64) * std::f64::MAX;
     let b6 = (1.0 - inbox(pos6.x, pos6.y, pos6.z, size) as i64 as f64) * std::f64::MAX;
 
-    (b1 + t1).min((b2 + t2).min((b3 + t3).min((b4 + t4).min((b5 + t5).min(b6 + t6)))))
+    (b1.max(t1)).min((b2.max(t2)).min((b3.max(t3)).min((b4.max(t4)).min((b5.max(t5)).min(b6.max(t6))))))
 }
 
 fn cast_ray_voxel(
@@ -109,30 +109,39 @@ fn main() {
 
     let mut tree = allocate(500);
     let node: &mut VoxelNode = tree.allocate_and_get_node();
+    node.put_child(1, tree.allocate_node());
+    node.get_child(tree, 1).flags = 1;
+    node.get_child(tree, 1).colour = [255, 50, 50];
     node.put_child(0, tree.allocate_node());
     let node2: &mut VoxelNode = node.get_child(tree, 0);
     node2.put_child(0, tree.allocate_node());
     node2.get_child(tree, 0).flags = 1;
     node2.get_child(tree, 0).colour = [230, 183, 0];
-    node2.put_child(6, tree.allocate_node());
-    node2.get_child(tree, 6).flags = 1;
-    node2.get_child(tree, 6).colour = [0, 183, 235];
-    node2.put_child(1, tree.allocate_node());
-    node2.get_child(tree, 1).flags = 1;
-    node2.get_child(tree, 1).colour = [200, 183, 235];
+    node2.put_child(2, tree.allocate_node());
+    node2.get_child(tree, 2).flags = 1;
+    node2.get_child(tree, 2).colour = [0, 183, 235];
+    node2.put_child(5, tree.allocate_node());
+    node2.get_child(tree, 5).flags = 1;
+    node2.get_child(tree, 5).colour = [200, 183, 235];
+    node2.put_child(7, tree.allocate_node());
+    node2.get_child(tree, 7).flags = 1;
+    node2.get_child(tree, 7).colour = [100, 183, 235];
 
-    let width: u32 = 256;
-    let height: u32 = 256;
+    //node.flags =1;
+    node.colour=[255, 183, 235];
 
-    let campos = new_vec(2.0, -1.5, -3.5);
-    let camrot = new_vec(-20.0, -20.0, 0.0);
+    let width: u32 = 1024;
+    let height: u32 = 1024;
+
+    let campos = new_vec(-0.2, -0.8, -1.8);
+    let camrot = new_vec(-20.0, -0.0, 0.0);
     let rotation = Quaternion::from(Euler {
         x: Deg(camrot.x),
         y: Deg(camrot.y),
         z: Deg(camrot.z),
     });
 
-    let cubepos = new_vec(0.0, 1.0, 0.0);
+    let cubepos = new_vec(0.0, 0.0, 0.0);
 
     let mut buffer: Vec<u8> = vec![0; (width * height * 3) as usize]; // Generate the image data;
 
@@ -166,8 +175,6 @@ fn main() {
         .unwrap();
 
     println!("Cpu took {} ms", (cpuend - startcpu).as_millis());
-
-    
 
     use image::ImageBuffer;
     use image::Rgba;
@@ -205,11 +212,14 @@ fn main() {
     let mut feat = Features::none();
     feat.shader_f3264 = true;
 
+    let mut exts = DeviceExtensions::none();
+    exts.khr_storage_buffer_storage_class = true;
+
     let (device, mut queues) = {
         Device::new(
             physical,
             &feat,
-            &DeviceExtensions::none(),
+            &exts,
             [(queue_family, 0.5)].iter().cloned(),
         )
         .expect("failed to create device")
@@ -226,15 +236,28 @@ fn main() {
         Format::R8G8B8A8Unorm,
         Some(queue.family()),
     )
-    .unwrap();
+        .unwrap();
+
+
+    let vbuffer = unsafe {CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, (0..500).into_iter().map(|i| {
+        *(tree.base as *const VoxelNode as *const u32).offset(i)
+    })).unwrap()};
 
     mod cs {
         vulkano_shaders::shader! {
             ty: "compute",
             src: "
 #version 450
+#define FLT_MAX 3.402823466e+38
+#define FLT_MIN 1.175494351e-38
+#define DBL_MAX 1.7976931348623158e+308
+#define DBL_MIN 2.2250738585072014e-308
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba8) uniform writeonly image2D img;
+layout(set = 1, binding = 0) buffer VoxelBuffer {
+    vec4[] data;
+};
 
 layout(push_constant) uniform pushConstants {
     dvec3 campos;
@@ -243,38 +266,187 @@ layout(push_constant) uniform pushConstants {
     dvec3 forward;
 } pc;
 
-const double EPSILON = 0.0001;
-
-bool inbox(dvec3 pos){
-    return (pos.x + EPSILON >= -0.5) && (pos.x - EPSILON <= 0.5) && (pos.y + EPSILON >= -0.5) && (pos.y - EPSILON <= 0.5) && (pos.z + EPSILON >= -0.5) && (pos.z - EPSILON <= 0.5);
+dvec3 oct_byte_to_vec(uint byte){ // 204 102 240
+    return dvec3(double(bool(byte & 102)), double(bool(byte & 204)), double(bool(byte & 240))) - dvec3(0.5);
 }
 
-bool cast_ray(dvec3 start, dvec3 dir) {
-    double t1 = (-0.5 - start.x) / dir.x;
-    double t2 = (0.5 - start.x) / dir.x;
+uint get_byte(uint src, uint byte){
+    src = src << (3 - byte) * 8;
+    src = src >> 3 * 8;
+    return src;
+    src = src << 3 * 8;
+    return src;
+}
 
-    double t3 = (-0.5 - start.y) / dir.y;
-    double t4 = (0.5 - start.y) / dir.y;
+uint read_vbuffer(uint address){
+    uint vecadr = uint((address - mod(address, 4)) / 4);
+    vec4 vec = data[vecadr];
 
-    double t5 = (-0.5 - start.z) / dir.z;
-    double t6 = (0.5 - start.z) / dir.z;
+    return floatBitsToUint(vec[uint(mod(address, 4))]);
+}
 
-    dvec3 pos1 = start + (dir * t1);
-    dvec3 pos2 = start + (dir * t2);
-    dvec3 pos3 = start + (dir * t3);
-    dvec3 pos4 = start + (dir * t4);
-    dvec3 pos5 = start + (dir * t5);
-    dvec3 pos6 = start + (dir * t6);
+const double EPSILON = 0.0001;
 
 
+bool inbox(dvec3 pos, double size){
+    return (pos.x + EPSILON >= size * -0.5) && (pos.x - EPSILON <= size * 0.5) && (pos.y + EPSILON >= size * -0.5) && (pos.y - EPSILON <= size * 0.5) && (pos.z + EPSILON >= size * -0.5) && (pos.z - EPSILON <= size * 0.5);
+}
 
-    return inbox(pos1)
-        || inbox(pos2)
-        || inbox(pos3)
-        || inbox(pos4)
-        || inbox(pos5)
-        || inbox(pos6)
-;
+double cast_ray_v_box(dvec3 start, dvec3 dir, double size) {
+    double t1 = (size * -0.5 - start.x) / dir.x;
+    double t2 = (size * 0.5 - start.x) / dir.x;
+
+    double t3 = (size * -0.5 - start.y) / dir.y;
+    double t4 = (size * 0.5 - start.y) / dir.y;
+
+    double t5 = (size * -0.5 - start.z) / dir.z;
+    double t6 = (size * 0.5 - start.z) / dir.z;
+
+    dvec3 pos1 = start + dir * t1;
+    dvec3 pos2 = start + dir * t2;
+    dvec3 pos3 = start + dir * t3;
+    dvec3 pos4 = start + dir * t4;
+    dvec3 pos5 = start + dir * t5;
+    dvec3 pos6 = start + dir * t6;
+
+    double b1 = double(inbox(pos1, size)) * t1;
+    double b2 = double(inbox(pos2, size)) * t2;
+    double b3 = double(inbox(pos3, size)) * t3;
+    double b4 = double(inbox(pos4, size)) * t4;
+    double b5 = double(inbox(pos5, size)) * t5;
+    double b6 = double(inbox(pos6, size)) * t6;
+
+    if(b1 == 0.0){ b1 = DBL_MAX; }
+    if(b2 == 0.0){ b2 = DBL_MAX; }
+    if(b3 == 0.0){ b3 = DBL_MAX; }
+    if(b4 == 0.0){ b4 = DBL_MAX; }
+    if(b5 == 0.0){ b5 = DBL_MAX; }
+    if(b6 == 0.0){ b6 = DBL_MAX; }
+
+
+    return min(b1, min(b2, min(b3, min(b4, min(b5, b6)))));
+}
+/*
+struct VoxelNode{
+    childmask: u8,
+    flags: u8,
+    colour : [u8; 3],
+
+    padding: [u8; 3],
+    //8 to 64 more bytes of pointers... kinda 32 do
+}
+*/
+
+uint get_voxel_childmask(uint ptr){
+    return get_byte(read_vbuffer(ptr),0);
+}
+uint get_voxel_flags(uint ptr){
+    return get_byte(read_vbuffer(ptr),1);
+}
+vec3 get_voxel_colour(uint ptr){
+    return vec3(get_byte(read_vbuffer(ptr),2), get_byte(read_vbuffer(ptr),3) , get_byte(read_vbuffer(ptr + 1),0)) / 255.0;
+}
+uint get_voxel_child(uint voxelptr, uint childindex){
+    uint child = 1 << childindex;
+
+    uint select = 1;
+    uint ptr = voxelptr + 2;
+    while (true) {
+        if((select & child) != 0) {
+            return read_vbuffer(ptr);
+        }
+
+        if((get_voxel_childmask(voxelptr) & select) != 0) {
+            ptr++;
+        }
+        select = select << 1;
+    }
+}
+
+struct RayTarget{
+    dvec3 hitlocation;
+    double t;
+    uint node;
+};
+
+struct LeafHit{
+    double t;
+    vec3 colour;
+};
+
+vec3 cast_ray_voxel(dvec3 start, dvec3 dir, uint root) {
+    double size = 1.0;
+    uint[8] activenodes;
+    activenodes[0]=root;
+    dvec3[8] nodelocations;
+    nodelocations[0]=dvec3(0.0);
+
+    LeafHit closestleaf = LeafHit(DBL_MAX, vec3(0.0));
+
+    uint count = 1;
+    while(count > 0) {
+
+        RayTarget[8] targets;
+        for(uint i=0; i < 8; i++) {
+            targets[i].t = DBL_MAX;
+        }
+
+        for(uint i=0; i < count; i++) {
+            targets[i]=RayTarget(nodelocations[i], cast_ray_v_box(start - nodelocations[i], dir, size), activenodes[i]);
+        }
+
+        count=0;
+
+        #define CMP(x, y) (targets[x].t > targets[y].t)
+        #define SWAP(x, y) RayTarget tar = targets[x]; targets[x] = targets[y]; targets[y] = tar;
+        #define CSWAP(x, y) if(CMP(x, y)){SWAP(x, y)}
+
+/* sort
+[[0,1],[2,3],[4,5],[6,7]]
+[[0,2],[1,3],[4,6],[5,7]]
+[[1,2],[5,6],[0,4],[3,7]]
+[[1,5],[2,6]]
+[[1,4],[3,6]]
+[[2,4],[3,5]]
+[[3,4]]
+*/
+
+        CSWAP(0,1) CSWAP(2,3) CSWAP(4,5) CSWAP(6,7)
+        CSWAP(0,2) CSWAP(1,3) CSWAP(4,6) CSWAP(5,7)
+        CSWAP(1,2) CSWAP(5,6) CSWAP(0,5) CSWAP(3,7)
+        CSWAP(1,5) CSWAP(2,6)
+        CSWAP(1,4) CSWAP(3,6)
+        CSWAP(2,4) CSWAP(3,5)
+        CSWAP(3,4)
+
+        for(uint h = 0; h < targets.length(); h++){
+        RayTarget hit = targets[h];
+        if (hit.t < DBL_MAX) {
+            if ((get_voxel_flags(hit.node) & 1) != 0 && hit.t < closestleaf.t ) {
+                closestleaf = LeafHit(hit.t, get_voxel_colour(hit.node));
+            } else {
+                uint newcount= count;
+                uint[8] newnodes;
+                dvec3[8] newlocations;
+                for(uint i=0; i < 8; i++) {
+                    uint child = 1 << i;
+
+                    if((get_voxel_childmask(hit.node) & child) != 0) {
+                        newlocations[newcount] = + hit.hitlocation + (oct_byte_to_vec(child) * size / 2.0);
+                        newnodes[newcount]= get_voxel_child(hit.node, i);
+                        newcount++;
+                    }
+                }
+                activenodes=newnodes;
+                nodelocations= newlocations;
+                count=newcount;
+            }
+        }}
+
+        size /= 2.0;
+    }
+
+    return closestleaf.colour;
 }
 
 void main() {
@@ -286,9 +458,8 @@ void main() {
 /// cyan vec3(0.0, 183.0 / 255.0, 235.0 / 255.0)
     vec4 to_write = vec4(0.0,0.0,0.0,1.0);
 
-    if(cast_ray(start, ray)){
-        to_write = vec4(vec3(0.0, 183.0 / 255.0, 235.0 / 255.0), 1.0);
-    }
+
+    to_write = vec4(cast_ray_voxel(start, ray, 1), 1.0);
 
     imageStore(img, ivec2(gl_GlobalInvocationID.xy), to_write);
 }"
@@ -302,7 +473,7 @@ void main() {
             .expect("failed to create compute pipeline"),
     );
 
-    let set = Arc::new(
+    let set0 = Arc::new(
         PersistentDescriptorSet::start(
             compute_pipeline
                 .layout()
@@ -310,19 +481,24 @@ void main() {
                 .unwrap()
                 .clone(),
         )
-        .add_image(image.clone())
-        .unwrap()
-        .build()
-        .unwrap(),
+            .add_image(image.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
     );
-
-    let buf = CpuAccessibleBuffer::from_iter(
-        device.clone(),
-        BufferUsage::all(),
-        false,
-        (0..width * height * 4).map(|_| 0u8),
-    )
-    .expect("failed to create buffer");
+    let set1 = Arc::new(
+        PersistentDescriptorSet::start(
+            compute_pipeline
+                .layout()
+                .descriptor_set_layout(1)
+                .unwrap()
+                .clone(),
+        )
+            .add_buffer(vbuffer.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+    );
 
     let right = rotation
         * Vector3::<f64> {
@@ -353,6 +529,15 @@ void main() {
         _dummy2: [0; 8],
     };
 
+
+    let buf = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        (0..width * height * 4).map(|_| 0u8),
+    )
+        .expect("failed to create buffer");
+
     let gpustart = std::time::Instant::now();
 
     let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
@@ -360,7 +545,7 @@ void main() {
         .dispatch(
             [width / 8, height / 8, 1],
             compute_pipeline.clone(),
-            set.clone(),
+            (set0.clone(), set1.clone()),
             push_constants,
         )
         .unwrap()
