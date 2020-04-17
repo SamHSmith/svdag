@@ -1,3 +1,4 @@
+
 use antelope::camera::RenderCamera;
 use antelope::cgmath::prelude::One;
 use antelope::cgmath::{Deg, Euler, Matrix4, Quaternion, Vector3, Vector4};
@@ -56,30 +57,28 @@ fn cast_ray_voxel(
     activenodes.push(root);
     nodelocations.push(new_vec(0.0, 0.0, 0.0));
 
+    let mut closestleaf = (std::f64::MAX, [0 as u8; 3]);
+
     let mut x = 0;
     while x < activenodes.len() {
-        let mut hits: Vec<f64> = Vec::new();
+        
         let mut targets: Vec<(f64, (&VoxelNode, Vector3<f64>))> = Vec::new();
         for i in 0..activenodes.len() {
-            let hit = cast_ray_v_box(start - nodelocations[i], dir, size);
-            hits.push(hit);
-            targets.push((hit, (activenodes[i], nodelocations[i])));
+            targets.push((cast_ray_v_box(start - nodelocations[i], dir, size), (activenodes[i], nodelocations[i])));
 
             x += 1;
         }
-        let hit = hits.iter().cloned().fold(0. / 0., f64::min);
-        if (hit.is_normal() && hit < std::f64::MAX) {
-            let mut hitnode = (targets[0].1).0;
-            let mut hitlocation = (targets[0].1).1;
-            for (h, (node, location)) in targets {
-                if h == hit {
-                    hitnode = node;
-                    hitlocation = location;
-                }
-            }
+        targets.sort_by(|a , b| {(a.0).partial_cmp(&b.0).unwrap()});
+        for h in 0..targets.len() {
+        let hit = targets[h];
+        if ((hit.0).is_normal() && hit.0 < std::f64::MAX) {
+            let mut hitnode = (hit.1).0;
+            let mut hitlocation = (hit.1).1;
             if hitnode.flags & 1 != 0 {
                 //leaf
-                return hitnode.colour;
+                if hit.0 < closestleaf.0 {
+                    closestleaf= (hit.0, hitnode.colour);
+                }
             } else {
                 for c in 0..8 {
                     let child: u8 = 1 << c;
@@ -90,7 +89,7 @@ fn cast_ray_voxel(
                     }
                 }
             }
-        }
+        }}
 
         activenodes.drain(0..x);
         nodelocations.drain(0..x);
@@ -98,7 +97,7 @@ fn cast_ray_voxel(
         size /= 2.0;
     }
 
-    return [0, 0, 0];
+    return closestleaf.1;
 }
 
 fn new_vec(x: f64, y: f64, z: f64) -> Vector3<f64> {
@@ -130,8 +129,8 @@ fn main() {
     //node.flags =1;
     node.colour=[255, 183, 235];
 
-    let width: u32 = 1024;
-    let height: u32 = 1024;
+    let width: u32 = 256;
+    let height: u32 = 256;
 
     let campos = new_vec(-0.2, -0.8, -1.8);
     let camrot = new_vec(-20.0, -0.0, 0.0);
