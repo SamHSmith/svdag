@@ -1,15 +1,14 @@
-
 use antelope::camera::RenderCamera;
 use antelope::cgmath::prelude::One;
-use antelope::cgmath::{Deg, Euler, Matrix4, Quaternion, Vector3, Vector4};
+use antelope::cgmath::{Deg, Euler, Matrix4, Quaternion, Vector3, Vector4, InnerSpace};
 use antelope::mesh::{Mesh, MeshCreateInfo, MeshFactory, PostVertex, RenderInfo, Vertex};
 use antelope::window::{DemoTriangleRenderer, Frame, TriangleFrame, Window};
 use antelope::{MeshFrame, MeshRenderer};
 use lib::*;
 
-const EPSILON: f64 = 0.0001;
+const EPSILON: f64 = 0.000002;
 
-fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> f64 {
+fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> (f64, Vector3<f64>) {
     let t1 = (size * -0.5 - start.x) / dir.x;
     let t2 = (size * 0.5 - start.x) / dir.x;
 
@@ -35,61 +34,130 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> f64 {
     let pos5 = start + dir * t5;
     let pos6 = start + dir * t6;
 
-    let b1 = (1.0 - inbox(pos1.x, pos1.y, pos1.z, size) as i64 as f64) * std::f64::MAX;
-    let b2 = (1.0 - inbox(pos2.x, pos2.y, pos2.z, size) as i64 as f64) * std::f64::MAX;
-    let b3 = (1.0 - inbox(pos3.x, pos3.y, pos3.z, size) as i64 as f64) * std::f64::MAX;
-    let b4 = (1.0 - inbox(pos4.x, pos4.y, pos4.z, size) as i64 as f64) * std::f64::MAX;
-    let b5 = (1.0 - inbox(pos5.x, pos5.y, pos5.z, size) as i64 as f64) * std::f64::MAX;
-    let b6 = (1.0 - inbox(pos6.x, pos6.y, pos6.z, size) as i64 as f64) * std::f64::MAX;
+    let mut b1 = (1.0 - (inbox(pos1.x, pos1.y, pos1.z, size) && t1 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b2 = (1.0 - (inbox(pos2.x, pos2.y, pos2.z, size) && t2 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b3 = (1.0 - (inbox(pos3.x, pos3.y, pos3.z, size) && t3 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b4 = (1.0 - (inbox(pos4.x, pos4.y, pos4.z, size) && t4 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b5 = (1.0 - (inbox(pos5.x, pos5.y, pos5.z, size) && t5 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b6 = (1.0 - (inbox(pos6.x, pos6.y, pos6.z, size) && t6 > 0.0) as i64 as f64) * std::f64::MAX;
 
-    (b1.max(t1)).min((b2.max(t2)).min((b3.max(t3)).min((b4.max(t4)).min((b5.max(t5)).min(b6.max(t6))))))
+    b1 = b1.max(t1);
+    b2 = b2.max(t2);
+    b3 = b3.max(t3);
+    b4 = b4.max(t4);
+    b5 = b5.max(t5);
+    b6 = b6.max(t6);
+
+    let mut sort = vec![(b1, pos1),(b2, pos2),(b3, pos3),(b4, pos4),(b5, pos5),(b6, pos6)];
+
+    sort.sort_by(|a,b| (a.0).partial_cmp(&b.0).unwrap());
+
+    sort[0]
+
+    //let min = b1.min(b2.min(b3.min(b4.min(b5.min(b6)))));
+
+    /*(
+        min,
+        (pos1 * (b1 == min) as u64 as f64)
+            + (pos2 * (b2 == min) as u64 as f64)
+            + (pos3 * (b3 == min) as u64 as f64)
+            + (pos4 * (b4 == min) as u64 as f64)
+            + (pos5 * (b5 == min) as u64 as f64)
+            + (pos6 * (b6 == min) as u64 as f64),
+    )*/
 }
 
-fn cast_ray_voxel(
+struct RayTarget<'a> {
+    distance: f64,
+    node: &'a VoxelNode,
+    nodelocation: Vector3<f64>,
+    hitpos: Vector3<f64>, //relative to the omnicube
+}
+
+struct RayResult {
+    colour: Vector3<f64>,
+    smoothness: f64,
+    metalness: f64,
+    hitlocation: Vector3<f64>,
+    hitnormal: Vector3<f64>,
+    dead: usize,
+}
+
+fn dead_ray() -> RayResult {
+    RayResult {
+        colour: new_vec(0.0, 0.0, 0.0),
+        smoothness : 0.0,
+        metalness : 0.0,
+        hitlocation: new_vec(0.0, 0.0, 0.0),
+        hitnormal: new_vec(0.0, 0.0, 0.0),
+        dead: 0,
+    }
+}
+
+fn cast_ray_voxel<'a>(
     start: Vector3<f64>,
     dir: Vector3<f64>,
     root: &VoxelNode,
     tree: VoxelTree,
-) -> [u8; 3] {
+) -> RayResult {
     let mut size: f64 = 1.0;
     let mut activenodes: Vec<&VoxelNode> = Vec::new();
     let mut nodelocations: Vec<Vector3<f64>> = Vec::new();
     activenodes.push(root);
     nodelocations.push(new_vec(0.0, 0.0, 0.0));
 
-    let mut closestleaf = (std::f64::MAX, [0 as u8; 3]);
+    let mut closestleaf = (std::f64::MAX, None);
 
     let mut x = 0;
     while x < activenodes.len() {
-        
-        let mut targets: Vec<(f64, (&VoxelNode, Vector3<f64>))> = Vec::new();
+        let mut targets: Vec<RayTarget> = Vec::new();
         for i in 0..activenodes.len() {
-            targets.push((cast_ray_v_box(start - nodelocations[i], dir, size), (activenodes[i], nodelocations[i])));
+            let (distance, pos) = cast_ray_v_box(start - nodelocations[i], dir, size);
+            targets.push(RayTarget {
+                distance,
+                node: activenodes[i],
+                nodelocation: nodelocations[i],
+                hitpos: pos,
+            });
 
             x += 1;
         }
-        targets.sort_by(|a , b| {(a.0).partial_cmp(&b.0).unwrap()});
+        targets.sort_by(|a, b| (a.distance).partial_cmp(&b.distance).unwrap());
         for h in 0..targets.len() {
-        let hit = targets[h];
-        if ((hit.0).is_normal() && hit.0 < std::f64::MAX) {
-            let mut hitnode = (hit.1).0;
-            let mut hitlocation = (hit.1).1;
-            if hitnode.flags & 1 != 0 {
-                //leaf
-                if hit.0 < closestleaf.0 {
-                    closestleaf= (hit.0, hitnode.colour);
-                }
-            } else {
-                for c in 0..8 {
-                    let child: u8 = 1 << c;
+            let hit = &targets[h];
+            if (hit.distance.is_normal() && hit.distance < std::f64::MAX) {
+                if hit.node.flags & 1 != 0 {
+                    //leaf
+                    if hit.distance < closestleaf.0 {
+                        closestleaf = (
+                            hit.distance,
+                            Some(RayResult {
+                                colour: new_vec(
+                                    hit.node.colour[0] as f64,
+                                    hit.node.colour[1] as f64,
+                                    hit.node.colour[2] as f64,
+                                ),
+                                smoothness: hit.node.smoothness as f64 / 255.0,
+                                metalness: hit.node.metalness as f64 / 255.0,
+                                hitlocation: hit.nodelocation + hit.hitpos,
+                                hitnormal: get_biggest_axis(hit.hitpos).normalize(),
+                                dead: 1,
+                            }),
+                        );
+                    }
+                } else {
+                    for c in 0..8 {
+                        let child: u8 = 1 << c;
 
-                    if hitnode.childmask & child != 0 {
-                        nodelocations.push(hitlocation + (oct_byte_to_vec(child) * size / 2.0));
-                        activenodes.push(hitnode.get_child(tree, c));
+                        if hit.node.childmask & child != 0 {
+                            nodelocations
+                                .push(hit.nodelocation + (oct_byte_to_vec(child) * size / 2.0));
+                            activenodes.push(hit.node.get_child(tree, c));
+                        }
                     }
                 }
             }
-        }}
+        }
 
         activenodes.drain(0..x);
         nodelocations.drain(0..x);
@@ -97,7 +165,82 @@ fn cast_ray_voxel(
         size /= 2.0;
     }
 
-    return closestleaf.1;
+    match closestleaf.1 {
+        Some(c) => return c,
+        None => return dead_ray(),
+    }
+}
+
+const RPP: usize = 1;
+
+fn cast_pixel(
+    fxmin: f64,
+    fxmax: f64,
+    fymin: f64,
+    fymax: f64,
+    campos: Vector3<f64>,
+    camrot: Quaternion<f64>,
+    tree: VoxelTree,
+    root: &VoxelNode,
+) -> [u8; 3] {
+
+    let mut colour: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
+    let mut count = 0;
+
+    let mut colour2: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
+    let mut count2 = 0;
+
+    for _ in 0..RPP {
+
+        let raydir=camrot
+            * new_vec(
+                (random_mix(fxmin, fxmax) * 2.0 - 1.0),
+                (random_mix(fymin, fymax) * 2.0 - 1.0),
+                1.0,
+            );
+
+        let cast1 = cast_ray_voxel(
+            campos,
+            raydir,
+            root,
+            tree,
+        );
+        count += 1;
+        //colour += cast1.colour * (1.0-cast1.smoothness);
+        let fresnel1 = fresnel(-raydir, cast1.hitnormal);
+
+        if cast1.dead == 0 {
+            continue;
+        }
+
+        colour = new_vec(fresnel1, fresnel1, fresnel1) * 255.0;
+
+        let cast2 = cast_ray_voxel(
+            cast1.hitlocation + (cast1.hitnormal * EPSILON),
+            reflect (raydir, cast1.hitnormal),
+            root,
+            tree,
+        );
+        count2 += 1;
+        colour2 += cast2.colour * cast1.smoothness;
+
+        if cast2.dead == 0 {
+            continue;
+        }
+
+    }
+
+    colour /= count as f64;
+    colour2 /= count2 as f64;
+
+    let finalc = colour;// + (colour2);
+
+    return [finalc.x as u8, finalc.y as u8, finalc.z as u8];
+}
+
+fn random_mix(a: f64, b: f64) -> f64 {
+    let mix: f64 = rand::random();
+    return (mix * a) + ((1.0 - mix) * b);
 }
 
 fn new_vec(x: f64, y: f64, z: f64) -> Vector3<f64> {
@@ -105,7 +248,6 @@ fn new_vec(x: f64, y: f64, z: f64) -> Vector3<f64> {
 }
 
 fn main() {
-
     let mut tree = allocate(500);
     let node: &mut VoxelNode = tree.allocate_and_get_node();
     node.put_child(1, tree.allocate_node());
@@ -119,21 +261,22 @@ fn main() {
     node2.put_child(2, tree.allocate_node());
     node2.get_child(tree, 2).flags = 1;
     node2.get_child(tree, 2).colour = [0, 183, 235];
+    node2.get_child(tree, 2).smoothness = 200;
     node2.put_child(5, tree.allocate_node());
     node2.get_child(tree, 5).flags = 1;
-    node2.get_child(tree, 5).colour = [200, 183, 235];
+    node2.get_child(tree, 5).colour = [200, 230, 180];
     node2.put_child(7, tree.allocate_node());
     node2.get_child(tree, 7).flags = 1;
-    node2.get_child(tree, 7).colour = [100, 183, 235];
+    node2.get_child(tree, 7).colour = [50, 130, 255];
 
     //node.flags =1;
-    node.colour=[255, 183, 235];
+    node.colour = [255, 183, 235];
 
     let width: u32 = 256;
     let height: u32 = 256;
 
-    let campos = new_vec(-0.2, -0.8, -1.8);
-    let camrot = new_vec(-20.0, -0.0, 0.0);
+    let campos = new_vec(-0.7, -0.8, -1.8);
+    let camrot = new_vec(-20.0, 20.0, 0.0);
     let rotation = Quaternion::from(Euler {
         x: Deg(camrot.x),
         y: Deg(camrot.y),
@@ -148,15 +291,24 @@ fn main() {
 
     for x in 0..width {
         for y in 0..height {
-            let fx = x as f64 / width as f64;
-            let fy = y as f64 / height as f64;
+            let pixelwidth = 1.0 / width as f64;
+            let fx = x as f64 * pixelwidth;
+            let pixelheight = 1.0 / height as f64;
+            let fy = y as f64 * pixelheight;
+
+            let hw = pixelwidth / 2.0;
+            let hh = pixelheight / 2.0;
 
             let index = ((y * width + x) * 3 as u32) as usize;
-            let colour: [u8; 3] = cast_ray_voxel(
-                campos - cubepos,
-                rotation * new_vec((fx * 2.0 - 1.0), (fy * 2.0 - 1.0), 1.0),
-                node,
+            let colour: [u8; 3] = cast_pixel(
+                fx - hw,
+                fx + hw,
+                fy - hh,
+                fy + hh,
+                campos,
+                rotation,
                 tree,
+                node,
             );
 
             buffer[index] = colour[0];
@@ -228,19 +380,23 @@ fn main() {
 
     let image = StorageImage::new(
         device.clone(),
-        Dimensions::Dim2d {
-            width,
-            height,
-        },
+        Dimensions::Dim2d { width, height },
         Format::R8G8B8A8Unorm,
         Some(queue.family()),
     )
-        .unwrap();
+    .unwrap();
 
-
-    let vbuffer = unsafe {CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), false, (0..500).into_iter().map(|i| {
-        *(tree.base as *const VoxelNode as *const u32).offset(i)
-    })).unwrap()};
+    let vbuffer = unsafe {
+        CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            (0..500)
+                .into_iter()
+                .map(|i| *(tree.base as *const VoxelNode as *const u32).offset(i)),
+        )
+        .unwrap()
+    };
 
     mod cs {
         vulkano_shaders::shader! {
@@ -284,7 +440,7 @@ uint read_vbuffer(uint address){
     return floatBitsToUint(vec[uint(mod(address, 4))]);
 }
 
-const double EPSILON = 0.0001;
+const double EPSILON = 0.000002;
 
 
 bool inbox(dvec3 pos, double size){
@@ -480,10 +636,10 @@ void main() {
                 .unwrap()
                 .clone(),
         )
-            .add_image(image.clone())
-            .unwrap()
-            .build()
-            .unwrap(),
+        .add_image(image.clone())
+        .unwrap()
+        .build()
+        .unwrap(),
     );
     let set1 = Arc::new(
         PersistentDescriptorSet::start(
@@ -493,10 +649,10 @@ void main() {
                 .unwrap()
                 .clone(),
         )
-            .add_buffer(vbuffer.clone())
-            .unwrap()
-            .build()
-            .unwrap(),
+        .add_buffer(vbuffer.clone())
+        .unwrap()
+        .build()
+        .unwrap(),
     );
 
     let right = rotation
@@ -528,14 +684,13 @@ void main() {
         _dummy2: [0; 8],
     };
 
-
     let buf = CpuAccessibleBuffer::from_iter(
         device.clone(),
         BufferUsage::all(),
         false,
         (0..width * height * 4).map(|_| 0u8),
     )
-        .expect("failed to create buffer");
+    .expect("failed to create buffer");
 
     let gpustart = std::time::Instant::now();
 

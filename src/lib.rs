@@ -43,7 +43,8 @@ pub struct VoxelNode {
     pub childmask: u8,
     pub flags: u8,
     pub colour : [u8; 3],
-
+    pub smoothness : u8,
+    pub metalness : u8,
     padding: [u8; 3],
     //8 to 64 more bytes of pointers... kinda
 }
@@ -116,7 +117,7 @@ impl VoxelNode {
         }
     }
 }
-use antelope::cgmath::Vector3;
+use antelope::cgmath::{Vector3, InnerSpace};
 use num_traits::float::Float;
 
 #[inline(always)]
@@ -137,6 +138,25 @@ where
 #[inline(always)]
 pub fn byte_to_one(byte: u8) -> u8 {
     (1 as u8).saturating_sub((1 as u8).saturating_sub(byte))
+}
+#[inline(always)]
+pub fn get_biggest_axis(v :Vector3<f64>) -> Vector3<f64> {
+    let x = (v.x.abs() > v.y.abs() && v.x.abs() > v.z.abs()) as i32 as f64;
+    let y = (v.y.abs() > v.x.abs() && v.y.abs() > v.z.abs()) as i32 as f64;
+    let z = (v.z.abs() > v.x.abs() && v.z.abs() > v.y.abs()) as i32 as f64;
+
+    Vector3{x:x*v.x,y:y*v.y,z:z*v.z}
+}
+
+#[inline(always)]
+pub fn reflect(v : Vector3<f64>, normal : Vector3<f64>) -> Vector3<f64> {
+    v + (-2.0 * v.dot(normal) * normal)
+}
+
+#[inline(always)]
+pub fn fresnel(v : Vector3<f64>, normal : Vector3<f64>) ->f64 {
+    let F0 = 0.04;
+    F0 + ((1.0 - F0) * (1.0 - normal.dot(v)).powf(5.0))
 }
 
 pub fn allocate(size: usize) -> VoxelTree {
