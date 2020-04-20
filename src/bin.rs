@@ -187,7 +187,7 @@ fn cast_ray_voxel<'a>(
     }
 }
 
-const RPP: usize = 100;
+const RPP: usize = 500;
 const RBC: usize = 4;
 const EMISSION: f64 = 15.0;
 
@@ -314,8 +314,8 @@ fn main() {
     //node.flags =1;
     node.colour = [255, 183, 235];
 
-    let width: u32 = 4098;
-    let height: u32 = 4098;
+    let width: usize = 256;
+    let height: usize = 256;
 
     let campos = new_vec(-0.7, -0.8, -1.8);
     let camrot = new_vec(-20.0, 20.0, 0.0);
@@ -336,8 +336,8 @@ fn main() {
 
     let columnsdone = Mutex::new(0 as usize);
 
-    let maxindex = width * height;
-    let chunksize = 500;
+    let maxindex : usize = width * height;
+    let chunksize : usize = 1000;
 
     (0..(maxindex / chunksize)).into_par_iter().for_each(|w| {
         for s in 0..(chunksize.min(maxindex.saturating_sub(w*chunksize))) {
@@ -351,7 +351,7 @@ fn main() {
             let hw = pixelwidth / 2.0;
             let hh = pixelheight / 2.0;
 
-            let index = (((w * chunksize)+s) * 3 as u32) as usize;
+            let index = (((w * chunksize)+s) * 3 as usize);
             let colour: [u8; 3] = cast_pixel(
                 fx - hw,
                 fx + hw,
@@ -380,7 +380,7 @@ fn main() {
     let cpuend = std::time::Instant::now();
 
     // Save the buffer as "image.png"
-    image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(width, height, &buffer[..])
+    image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(width as u32, height as u32, &buffer[..])
         .unwrap()
         .save("image.png")
         .unwrap();
@@ -440,7 +440,7 @@ fn main() {
 
     let image = StorageImage::new(
         device.clone(),
-        Dimensions::Dim2d { width, height },
+        Dimensions::Dim2d { width:width as u32, height:height as u32},
         Format::R8G8B8A8Unorm,
         Some(queue.family()),
     )
@@ -757,7 +757,7 @@ void main() {
     let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
         .unwrap()
         .dispatch(
-            [width / 8, height / 8, 1],
+            [(width / 8) as u32, (height / 8) as u32, 1],
             compute_pipeline.clone(),
             (set0.clone(), set1.clone()),
             push_constants,
@@ -778,7 +778,7 @@ void main() {
     let gpuend = std::time::Instant::now();
 
     let buffer_content = buf.read().unwrap();
-    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, &buffer_content[..]).unwrap();
+    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, &buffer_content[..]).unwrap();
     image.save("image2.png").unwrap();
 
     println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
