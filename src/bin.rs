@@ -1,6 +1,6 @@
 use antelope::camera::RenderCamera;
 use antelope::cgmath::prelude::One;
-use antelope::cgmath::{Deg, Euler, Matrix4, Quaternion, Vector3, Vector4, InnerSpace};
+use antelope::cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
 use antelope::mesh::{Mesh, MeshCreateInfo, MeshFactory, PostVertex, RenderInfo, Vertex};
 use antelope::window::{DemoTriangleRenderer, Frame, TriangleFrame, Window};
 use antelope::{MeshFrame, MeshRenderer};
@@ -34,12 +34,18 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> (f64, Ve
     let pos5 = start + dir * t5;
     let pos6 = start + dir * t6;
 
-    let mut b1 = (1.0 - (inbox(pos1.x, pos1.y, pos1.z, size) && t1 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b2 = (1.0 - (inbox(pos2.x, pos2.y, pos2.z, size) && t2 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b3 = (1.0 - (inbox(pos3.x, pos3.y, pos3.z, size) && t3 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b4 = (1.0 - (inbox(pos4.x, pos4.y, pos4.z, size) && t4 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b5 = (1.0 - (inbox(pos5.x, pos5.y, pos5.z, size) && t5 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b6 = (1.0 - (inbox(pos6.x, pos6.y, pos6.z, size) && t6 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b1 =
+        (1.0 - (inbox(pos1.x, pos1.y, pos1.z, size) && t1 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b2 =
+        (1.0 - (inbox(pos2.x, pos2.y, pos2.z, size) && t2 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b3 =
+        (1.0 - (inbox(pos3.x, pos3.y, pos3.z, size) && t3 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b4 =
+        (1.0 - (inbox(pos4.x, pos4.y, pos4.z, size) && t4 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b5 =
+        (1.0 - (inbox(pos5.x, pos5.y, pos5.z, size) && t5 > 0.0) as i64 as f64) * std::f64::MAX;
+    let mut b6 =
+        (1.0 - (inbox(pos6.x, pos6.y, pos6.z, size) && t6 > 0.0) as i64 as f64) * std::f64::MAX;
 
     b1 = b1.max(t1);
     b2 = b2.max(t2);
@@ -48,9 +54,16 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> (f64, Ve
     b5 = b5.max(t5);
     b6 = b6.max(t6);
 
-    let mut sort = vec![(b1, pos1),(b2, pos2),(b3, pos3),(b4, pos4),(b5, pos5),(b6, pos6)];
+    let mut sort = vec![
+        (b1, pos1),
+        (b2, pos2),
+        (b3, pos3),
+        (b4, pos4),
+        (b5, pos5),
+        (b6, pos6),
+    ];
 
-    sort.sort_by(|a,b| (a.0).partial_cmp(&b.0).unwrap());
+    sort.sort_by(|a, b| (a.0).partial_cmp(&b.0).unwrap());
 
     sort[0]
 
@@ -76,8 +89,9 @@ struct RayTarget<'a> {
 
 struct RayResult {
     colour: Vector3<f64>,
-    smoothness: f64,
+    emission: f64,
     metalness: f64,
+    roughness: f64,
     hitlocation: Vector3<f64>,
     hitnormal: Vector3<f64>,
     dead: usize,
@@ -86,8 +100,9 @@ struct RayResult {
 fn dead_ray() -> RayResult {
     RayResult {
         colour: new_vec(0.0, 0.0, 0.0),
-        smoothness : 0.0,
-        metalness : 0.0,
+        emission: 0.0,
+        metalness: 0.0,
+        roughness: 0.0,
         hitlocation: new_vec(0.0, 0.0, 0.0),
         hitnormal: new_vec(0.0, 0.0, 0.0),
         dead: 0,
@@ -136,9 +151,10 @@ fn cast_ray_voxel<'a>(
                                     hit.node.colour[0] as f64,
                                     hit.node.colour[1] as f64,
                                     hit.node.colour[2] as f64,
-                                ),
-                                smoothness: hit.node.smoothness as f64 / 255.0,
+                                ) / 255.0,
+                                emission: hit.node.emission as f64 / 255.0,
                                 metalness: hit.node.metalness as f64 / 255.0,
+                                roughness: hit.node.roughness as f64 / 255.0,
                                 hitlocation: hit.nodelocation + hit.hitpos,
                                 hitnormal: get_biggest_axis(hit.hitpos).normalize(),
                                 dead: 1,
@@ -171,7 +187,9 @@ fn cast_ray_voxel<'a>(
     }
 }
 
-const RPP: usize = 1;
+const RPP: usize = 100;
+const RBC: usize = 4;
+const EMISSION: f64 = 15.0;
 
 fn cast_pixel(
     fxmin: f64,
@@ -183,59 +201,77 @@ fn cast_pixel(
     tree: VoxelTree,
     root: &VoxelNode,
 ) -> [u8; 3] {
+    fn do_ray(
+        dir: Vector3<f64>,
+        start: Vector3<f64>,
+        bouncesleft: usize,
+        tree: VoxelTree,
+        root: &VoxelNode,
+    ) -> Vector3<f64> {
+        if (bouncesleft <= 0) {
+            return new_vec(0.0, 0.0, 0.0);
+        }
+
+        let cast1 = cast_ray_voxel(start, dir, root, tree);
+
+        if cast1.dead == 0 {
+            return new_vec(0.0, 0.0, 0.0);
+        }
+
+        let fresnel = fresnel(-dir, cast1.hitnormal) * (1.0 - cast1.roughness);
+
+        let specular = fresnel * ((0.5 * (1.0 - cast1.metalness)) + (0.98 * cast1.metalness));
+
+        let specular_highlight = ((new_vec(0.5, 0.5, 0.5) * (1.0 - cast1.metalness))
+            + (cast1.colour * cast1.metalness))
+            * specular;
+
+        let diffuse = 0.5 * (1.0 - cast1.metalness);
+
+        let newdir = rand_dir_from_surf(cast1.hitnormal);
+
+        let diffuse_colour = (1.0 - cast1.emission)
+            * (diffuse
+                * point_wise_mul(
+                    cast1.colour,
+                    do_ray(newdir, cast1.hitlocation, bouncesleft - 1, tree, root),
+                ));
+
+        let specular_colour = (1.0 - cast1.emission)
+            * point_wise_mul(
+                specular_highlight,
+                do_ray(
+                    (newdir * cast1.roughness)
+                        + (reflect(dir, cast1.hitnormal) * (1.0 - cast1.roughness)),
+                    cast1.hitlocation,
+                    bouncesleft - 1,
+                    tree,
+                    root,
+                ),
+            );
+
+        let emissive_colour = (cast1.colour * cast1.emission * EMISSION);
+
+        emissive_colour + diffuse_colour + specular_colour
+    }
 
     let mut colour: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
     let mut count = 0;
 
-    let mut colour2: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
-    let mut count2 = 0;
-
     for _ in 0..RPP {
-
-        let raydir=camrot
+        let raydir = camrot
             * new_vec(
                 (random_mix(fxmin, fxmax) * 2.0 - 1.0),
                 (random_mix(fymin, fymax) * 2.0 - 1.0),
                 1.0,
             );
-
-        let cast1 = cast_ray_voxel(
-            campos,
-            raydir,
-            root,
-            tree,
-        );
         count += 1;
-        //colour += cast1.colour * (1.0-cast1.smoothness);
-        let fresnel1 = fresnel(-raydir, cast1.hitnormal);
-
-        if cast1.dead == 0 {
-            continue;
-        }
-
-        colour = new_vec(fresnel1, fresnel1, fresnel1) * 255.0;
-
-        let cast2 = cast_ray_voxel(
-            cast1.hitlocation + (cast1.hitnormal * EPSILON),
-            reflect (raydir, cast1.hitnormal),
-            root,
-            tree,
-        );
-        count2 += 1;
-        colour2 += cast2.colour * cast1.smoothness;
-
-        if cast2.dead == 0 {
-            continue;
-        }
-
+        colour += do_ray(raydir, campos, RBC, tree, root);
     }
 
     colour /= count as f64;
-    colour2 /= count2 as f64;
 
-    let finalc = colour;// + (colour2);
-
-    return [finalc.x as u8, finalc.y as u8, finalc.z as u8];
+    return linear_to_srgb(colour);
 }
 
 fn random_mix(a: f64, b: f64) -> f64 {
@@ -252,28 +288,34 @@ fn main() {
     let node: &mut VoxelNode = tree.allocate_and_get_node();
     node.put_child(1, tree.allocate_node());
     node.get_child(tree, 1).flags = 1;
-    node.get_child(tree, 1).colour = [255, 50, 50];
+    node.get_child(tree, 1).colour = [70, 50, 90];
+    node.get_child(tree, 1).roughness = 210;
     node.put_child(0, tree.allocate_node());
     let node2: &mut VoxelNode = node.get_child(tree, 0);
-    node2.put_child(0, tree.allocate_node());
-    node2.get_child(tree, 0).flags = 1;
-    node2.get_child(tree, 0).colour = [230, 183, 0];
+    node2.put_child(3, tree.allocate_node());
+    node2.get_child(tree, 3).flags = 1;
+    node2.get_child(tree, 3).colour = [130, 100, 2];
+    node2.get_child(tree, 3).roughness = 35;
     node2.put_child(2, tree.allocate_node());
     node2.get_child(tree, 2).flags = 1;
-    node2.get_child(tree, 2).colour = [0, 183, 235];
-    node2.get_child(tree, 2).smoothness = 200;
+    node2.get_child(tree, 2).colour = [255, 219, 145];
+    node2.get_child(tree, 2).roughness = 20;
+    node2.get_child(tree, 2).metalness = 255;
     node2.put_child(5, tree.allocate_node());
     node2.get_child(tree, 5).flags = 1;
-    node2.get_child(tree, 5).colour = [200, 230, 180];
+    node2.get_child(tree, 5).colour = [100, 100, 100];
+    node2.get_child(tree, 5).emission = 255;
+    node2.get_child(tree, 5).roughness = 255;
     node2.put_child(7, tree.allocate_node());
     node2.get_child(tree, 7).flags = 1;
-    node2.get_child(tree, 7).colour = [50, 130, 255];
+    node2.get_child(tree, 7).colour = [20, 50, 180];
+    node2.get_child(tree, 7).roughness = 240;
 
     //node.flags =1;
     node.colour = [255, 183, 235];
 
-    let width: u32 = 256;
-    let height: u32 = 256;
+    let width: u32 = 4098;
+    let height: u32 = 4098;
 
     let campos = new_vec(-0.7, -0.8, -1.8);
     let camrot = new_vec(-20.0, 20.0, 0.0);
@@ -289,8 +331,18 @@ fn main() {
 
     let startcpu = std::time::Instant::now();
 
-    for x in 0..width {
-        for y in 0..height {
+    use rayon::prelude::*;
+    use std::sync::Mutex;
+
+    let columnsdone = Mutex::new(0 as usize);
+
+    let maxindex = width * height;
+    let chunksize = 500;
+
+    (0..(maxindex / chunksize)).into_par_iter().for_each(|w| {
+        for s in 0..(chunksize.min(maxindex.saturating_sub(w*chunksize))) {
+            let x = ((w * chunksize) + s) % width;
+            let y = (((w * chunksize) + s) - x) / width;
             let pixelwidth = 1.0 / width as f64;
             let fx = x as f64 * pixelwidth;
             let pixelheight = 1.0 / height as f64;
@@ -299,7 +351,7 @@ fn main() {
             let hw = pixelwidth / 2.0;
             let hh = pixelheight / 2.0;
 
-            let index = ((y * width + x) * 3 as u32) as usize;
+            let index = (((w * chunksize)+s) * 3 as u32) as usize;
             let colour: [u8; 3] = cast_pixel(
                 fx - hw,
                 fx + hw,
@@ -310,12 +362,20 @@ fn main() {
                 tree,
                 node,
             );
-
-            buffer[index] = colour[0];
-            buffer[index + 1] = colour[1];
-            buffer[index + 2] = colour[2];
+            let bufferptr = buffer.as_ptr();
+            unsafe {
+                *(bufferptr.offset(index as isize) as *mut u8) = colour[0];
+                *(bufferptr.offset((index + 1) as isize) as *mut u8) = colour[1];
+                *(bufferptr.offset((index + 2) as isize) as *mut u8) = colour[2];
+            }
         }
-    }
+        let mut percent = columnsdone.lock().unwrap();
+        *percent += 1;
+        println!(
+            "Cpu Render is {} % done",
+            ((*percent * chunksize as usize) as f64 * 100.0) / maxindex as f64
+        );
+    });
 
     let cpuend = std::time::Instant::now();
 

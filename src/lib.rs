@@ -38,14 +38,22 @@ impl<'a> VoxelTree {
     }
 }
 
+unsafe impl Send for VoxelTree {
+    
+}
+
+unsafe impl Sync for VoxelTree {
+    
+}
+
 #[derive(Copy, Clone)]
 pub struct VoxelNode {
     pub childmask: u8,
     pub flags: u8,
     pub colour : [u8; 3],
-    pub smoothness : u8,
+    pub emission : u8,
     pub metalness : u8,
-    padding: [u8; 3],
+    pub roughness : u8,
     //8 to 64 more bytes of pointers... kinda
 }
 
@@ -157,6 +165,34 @@ pub fn reflect(v : Vector3<f64>, normal : Vector3<f64>) -> Vector3<f64> {
 pub fn fresnel(v : Vector3<f64>, normal : Vector3<f64>) ->f64 {
     let F0 = 0.04;
     F0 + ((1.0 - F0) * (1.0 - normal.dot(v)).powf(5.0))
+}
+
+#[inline(always)]
+pub fn point_wise_mul(v : Vector3<f64>, v2 : Vector3<f64>) -> Vector3<f64> {
+    Vector3::<f64> {x:v.x*v2.x, y:v.y*v2.y, z: v.z*v2.z}
+}
+
+pub fn rand_dir_from_surf(normal : Vector3<f64>) -> Vector3<f64> {
+    let mut v = Vector3::<f64> {x: rand::random(), y: rand::random(), z: rand::random(),};
+
+    if v.dot(normal) < 0.0 {
+        v += (-2.0 * v.dot(normal) * normal);
+    }
+    v.normalize()
+}
+
+pub fn linear_to_srgb(colour: Vector3<f64>) -> [u8; 3] {
+    [lin_to_srgb(colour.x), lin_to_srgb(colour.y), lin_to_srgb (colour.z)]
+}
+
+fn lin_to_srgb(c: f64) -> u8 {
+    let mut varR=c.min(1.0);
+    if (varR > 0.0031308) {
+        varR = 1.055 * (varR.powf(1.0 / 2.4)) - 0.055;
+    } else {
+        varR = 12.92 * varR;
+    }
+    return (varR * 255.0) as u8;
 }
 
 pub fn allocate(size: usize) -> VoxelTree {
