@@ -129,6 +129,17 @@ use antelope::cgmath::{Vector3, InnerSpace};
 use num_traits::float::Float;
 
 #[inline(always)]
+pub fn random_mix(a: f64, b: f64) -> f64 {
+    let mix: f64 = rand::random();
+    return (mix * a) + ((1.0 - mix) * b);
+}
+#[inline(always)]
+pub fn new_vec(x: f64, y: f64, z: f64) -> Vector3<f64> {
+    return Vector3 { x, y, z };
+}
+
+
+#[inline(always)]
 pub fn oct_byte_to_vec<F>(byte: u8) -> Vector3<F>
 where
     F: num_traits::float::Float,

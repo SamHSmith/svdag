@@ -18,6 +18,7 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> (f64, Ve
     let t5 = (size * -0.5 - start.z) / dir.z;
     let t6 = (size * 0.5 - start.z) / dir.z;
 
+    #[inline(always)]
     fn inbox(x: f64, y: f64, z: f64, size: f64) -> bool {
         return x + EPSILON >= size * -0.5
             && x - EPSILON <= size * 0.5
@@ -54,22 +55,9 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> (f64, Ve
     b5 = b5.max(t5);
     b6 = b6.max(t6);
 
-    let mut sort = vec![
-        (b1, pos1),
-        (b2, pos2),
-        (b3, pos3),
-        (b4, pos4),
-        (b5, pos5),
-        (b6, pos6),
-    ];
+    let min = b1.min(b2.min(b3.min(b4.min(b5.min(b6)))));
 
-    sort.sort_by(|a, b| (a.0).partial_cmp(&b.0).unwrap());
-
-    sort[0]
-
-    //let min = b1.min(b2.min(b3.min(b4.min(b5.min(b6)))));
-
-    /*(
+    (
         min,
         (pos1 * (b1 == min) as u64 as f64)
             + (pos2 * (b2 == min) as u64 as f64)
@@ -77,7 +65,7 @@ fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> (f64, Ve
             + (pos4 * (b4 == min) as u64 as f64)
             + (pos5 * (b5 == min) as u64 as f64)
             + (pos6 * (b6 == min) as u64 as f64),
-    )*/
+    )
 }
 
 struct RayTarget<'a> {
@@ -187,7 +175,8 @@ fn cast_ray_voxel<'a>(
     }
 }
 
-const RPP: usize = 500;
+const RPP: usize
+    = 20;
 const RBC: usize = 4;
 const EMISSION: f64 = 15.0;
 
@@ -236,7 +225,7 @@ fn cast_pixel(
                     cast1.colour,
                     do_ray(newdir, cast1.hitlocation, bouncesleft - 1, tree, root),
                 ));
-
+/*
         let specular_colour = (1.0 - cast1.emission)
             * point_wise_mul(
                 specular_highlight,
@@ -249,10 +238,10 @@ fn cast_pixel(
                     root,
                 ),
             );
-
+*/
         let emissive_colour = (cast1.colour * cast1.emission * EMISSION);
 
-        emissive_colour + diffuse_colour + specular_colour
+        emissive_colour + diffuse_colour// + specular_colour
     }
 
     let mut colour: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
@@ -272,15 +261,6 @@ fn cast_pixel(
     colour /= count as f64;
 
     return linear_to_srgb(colour);
-}
-
-fn random_mix(a: f64, b: f64) -> f64 {
-    let mix: f64 = rand::random();
-    return (mix * a) + ((1.0 - mix) * b);
-}
-
-fn new_vec(x: f64, y: f64, z: f64) -> Vector3<f64> {
-    return Vector3 { x, y, z };
 }
 
 fn main() {
@@ -449,7 +429,7 @@ fn main() {
     let vbuffer = unsafe {
         CpuAccessibleBuffer::from_iter(
             device.clone(),
-            BufferUsage::all(),
+            BufferUsage::uniform_buffer(),
             false,
             (0..500)
                 .into_iter()
@@ -467,11 +447,12 @@ fn main() {
 #define FLT_MIN 1.175494351e-38
 #define DBL_MAX 1.7976931348623158e+308
 #define DBL_MIN 2.2250738585072014e-308
+#define VBUFFER_SIZE 500
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba8) uniform writeonly image2D img;
-layout(set = 1, binding = 0) buffer VoxelBuffer {
-    vec4[] data;
+layout(set = 1, binding = 0) uniform VoxelBuffer {
+    vec4[VBUFFER_SIZE] data;
 };
 
 layout(push_constant) uniform pushConstants {
@@ -481,8 +462,34 @@ layout(push_constant) uniform pushConstants {
     dvec3 forward;
 } pc;
 
-dvec3 oct_byte_to_vec(uint byte){ // 204 102 240
-    return dvec3(double(bool(byte & 102)), double(bool(byte & 204)), double(bool(byte & 240))) - dvec3(0.5);
+float rand(vec2 co){
+    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+}
+
+vec3 reflectvec(vec3 v, vec3 normal){
+    return v + (-2.0 * dot(v, normal) * normal);
+}
+
+vec3 rand_dir_from_surf(vec3 normal, vec2 co){
+    vec3 v = vec3(rand(co), rand(co * 2), rand(co *3));
+
+    if(dot(v, normal) < 0.0) {
+        v += (-2.0 * dot(v, normal) * normal);
+    }
+    normalize(v);
+    return v;
+}
+
+vec3 oct_byte_to_vec(uint byte){ // 204 102 240
+    return vec3(float(bool(byte & 102)), float(bool(byte & 204)), float(bool(byte & 240))) - vec3(0.5);
+}
+
+vec3 biggest_axis(vec3 v){
+    float x = float(uint(abs(v.x) > abs(v.y) && abs(v.x) > abs(v.z)));
+    float y = float(uint(abs(v.y) > abs(v.x) && abs(v.y) > abs(v.z)));
+    float z = float(uint(abs(v.z) > abs(v.x) && abs(v.z) > abs(v.y)));
+
+    return v * vec3(x,y,z);
 }
 
 uint get_byte(uint src, uint byte){
@@ -500,46 +507,62 @@ uint read_vbuffer(uint address){
     return floatBitsToUint(vec[uint(mod(address, 4))]);
 }
 
-const double EPSILON = 0.000002;
+const float EPSILON = 0.000002;
 
 
-bool inbox(dvec3 pos, double size){
+bool inbox(vec3 pos, float size){
     return (pos.x + EPSILON >= size * -0.5) && (pos.x - EPSILON <= size * 0.5) && (pos.y + EPSILON >= size * -0.5) && (pos.y - EPSILON <= size * 0.5) && (pos.z + EPSILON >= size * -0.5) && (pos.z - EPSILON <= size * 0.5);
 }
 
-double cast_ray_v_box(dvec3 start, dvec3 dir, double size) {
-    double t1 = (size * -0.5 - start.x) / dir.x;
-    double t2 = (size * 0.5 - start.x) / dir.x;
+struct RayTarget{
+    vec3 hitlocation;
+    vec3 nodelocation;
+    vec3 hitnormal;
+    vec3 raydir;
+    float t;
+    float specular;
+    uint node;
+};
 
-    double t3 = (size * -0.5 - start.y) / dir.y;
-    double t4 = (size * 0.5 - start.y) / dir.y;
+RayTarget cast_ray_v_box(vec3 start, vec3 dir, float size, vec3 nodelocation, uint node, vec3 globalray, float specular) {
+    float t1 = (size * -0.5 - start.x) / dir.x;
+    float t2 = (size * 0.5 - start.x) / dir.x;
 
-    double t5 = (size * -0.5 - start.z) / dir.z;
-    double t6 = (size * 0.5 - start.z) / dir.z;
+    float t3 = (size * -0.5 - start.y) / dir.y;
+    float t4 = (size * 0.5 - start.y) / dir.y;
 
-    dvec3 pos1 = start + dir * t1;
-    dvec3 pos2 = start + dir * t2;
-    dvec3 pos3 = start + dir * t3;
-    dvec3 pos4 = start + dir * t4;
-    dvec3 pos5 = start + dir * t5;
-    dvec3 pos6 = start + dir * t6;
+    float t5 = (size * -0.5 - start.z) / dir.z;
+    float t6 = (size * 0.5 - start.z) / dir.z;
 
-    double b1 = double(inbox(pos1, size)) * t1;
-    double b2 = double(inbox(pos2, size)) * t2;
-    double b3 = double(inbox(pos3, size)) * t3;
-    double b4 = double(inbox(pos4, size)) * t4;
-    double b5 = double(inbox(pos5, size)) * t5;
-    double b6 = double(inbox(pos6, size)) * t6;
+    vec3 pos1 = start + dir * t1;
+    vec3 pos2 = start + dir * t2;
+    vec3 pos3 = start + dir * t3;
+    vec3 pos4 = start + dir * t4;
+    vec3 pos5 = start + dir * t5;
+    vec3 pos6 = start + dir * t6;
 
-    if(b1 == 0.0){ b1 = DBL_MAX; }
-    if(b2 == 0.0){ b2 = DBL_MAX; }
-    if(b3 == 0.0){ b3 = DBL_MAX; }
-    if(b4 == 0.0){ b4 = DBL_MAX; }
-    if(b5 == 0.0){ b5 = DBL_MAX; }
-    if(b6 == 0.0){ b6 = DBL_MAX; }
+    float b1 = float(inbox(pos1, size)) * t1;
+    float b2 = float(inbox(pos2, size)) * t2;
+    float b3 = float(inbox(pos3, size)) * t3;
+    float b4 = float(inbox(pos4, size)) * t4;
+    float b5 = float(inbox(pos5, size)) * t5;
+    float b6 = float(inbox(pos6, size)) * t6;
 
+    if(b1 <= 0.0){ b1 = FLT_MAX; }
+    if(b2 <= 0.0){ b2 = FLT_MAX; }
+    if(b3 <= 0.0){ b3 = FLT_MAX; }
+    if(b4 <= 0.0){ b4 = FLT_MAX; }
+    if(b5 <= 0.0){ b5 = FLT_MAX; }
+    if(b6 <= 0.0){ b6 = FLT_MAX; }
 
-    return min(b1, min(b2, min(b3, min(b4, min(b5, b6)))));
+    float min =min(b1, min(b2, min(b3, min(b4, min(b5, b6)))));
+
+    if(abs(b1 - min) < EPSILON){return RayTarget(nodelocation + pos1, nodelocation, biggest_axis(pos1), globalray, b1, specular, node);}
+    if(abs(b2 - min) < EPSILON){return RayTarget(nodelocation + pos2, nodelocation, biggest_axis(pos2), globalray, b2, specular, node);}
+    if(abs(b3 - min) < EPSILON){return RayTarget(nodelocation + pos3, nodelocation, biggest_axis(pos3), globalray, b3, specular, node);}
+    if(abs(b4 - min) < EPSILON){return RayTarget(nodelocation + pos4, nodelocation, biggest_axis(pos4), globalray, b4, specular, node);}
+    if(abs(b5 - min) < EPSILON){return RayTarget(nodelocation + pos5, nodelocation, biggest_axis(pos5), globalray, b5, specular, node);}
+    if(abs(b6 - min) < EPSILON){return RayTarget(nodelocation + pos6, nodelocation, biggest_axis(pos6), globalray, b6, specular, node);}
 }
 /*
 struct VoxelNode{
@@ -561,6 +584,15 @@ uint get_voxel_flags(uint ptr){
 vec3 get_voxel_colour(uint ptr){
     return vec3(get_byte(read_vbuffer(ptr),2), get_byte(read_vbuffer(ptr),3) , get_byte(read_vbuffer(ptr + 1),0)) / 255.0;
 }
+float get_voxel_emission(uint ptr){
+    return float(get_byte(read_vbuffer(ptr + 1),1) / 255.0);
+}
+float get_voxel_metalness(uint ptr){
+    return float(get_byte(read_vbuffer(ptr + 1),2) / 255.0);
+}
+float get_voxel_roughness(uint ptr){
+    return float(get_byte(read_vbuffer(ptr + 1),3)) / 255.0;
+}
 uint get_voxel_child(uint voxelptr, uint childindex){
     uint child = 1 << childindex;
 
@@ -578,36 +610,27 @@ uint get_voxel_child(uint voxelptr, uint childindex){
     }
 }
 
-struct RayTarget{
-    dvec3 hitlocation;
-    double t;
-    uint node;
-};
 
-struct LeafHit{
-    double t;
-    vec3 colour;
-};
-
-vec3 cast_ray_voxel(dvec3 start, dvec3 dir, uint root) {
-    double size = 1.0;
+RayTarget cast_ray_voxel(vec3 start, vec3 dir, uint root, float specular) {
+    float size = 1.0;
     uint[8] activenodes;
     activenodes[0]=root;
-    dvec3[8] nodelocations;
-    nodelocations[0]=dvec3(0.0);
+    vec3[8] nodelocations;
+    nodelocations[0]=vec3(0.0);
 
-    LeafHit closestleaf = LeafHit(DBL_MAX, vec3(0.0));
+    RayTarget closestleaf = RayTarget(vec3(0.0),vec3(0.0),vec3(0.0),vec3(0.0),0.0,0.0,0);
+    closestleaf.t = FLT_MAX;
 
     uint count = 1;
     while(count > 0) {
 
         RayTarget[8] targets;
         for(uint i=0; i < 8; i++) {
-            targets[i].t = DBL_MAX;
+            targets[i].t = FLT_MAX;
         }
 
         for(uint i=0; i < count; i++) {
-            targets[i]=RayTarget(nodelocations[i], cast_ray_v_box(start - nodelocations[i], dir, size), activenodes[i]);
+            targets[i]=cast_ray_v_box(start - nodelocations[i], dir, size, nodelocations[i], activenodes[i], dir, specular);
         }
 
         count=0;
@@ -636,18 +659,18 @@ vec3 cast_ray_voxel(dvec3 start, dvec3 dir, uint root) {
 
         for(uint h = 0; h < targets.length(); h++){
         RayTarget hit = targets[h];
-        if (hit.t < DBL_MAX) {
-            if ((get_voxel_flags(hit.node) & 1) != 0 && hit.t < closestleaf.t ) {
-                closestleaf = LeafHit(hit.t, get_voxel_colour(hit.node));
+        if (hit.t < FLT_MAX) {
+            if ((get_voxel_flags(hit.node) & 1) != 0 && hit.t < closestleaf.t) {
+                closestleaf = hit;
             } else {
                 uint newcount= count;
                 uint[8] newnodes;
-                dvec3[8] newlocations;
+                vec3[8] newlocations;
                 for(uint i=0; i < 8; i++) {
                     uint child = 1 << i;
 
                     if((get_voxel_childmask(hit.node) & child) != 0) {
-                        newlocations[newcount] = + hit.hitlocation + (oct_byte_to_vec(child) * size / 2.0);
+                        newlocations[newcount] = + hit.nodelocation + (oct_byte_to_vec(child) * size / 2.0);
                         newnodes[newcount]= get_voxel_child(hit.node, i);
                         newcount++;
                     }
@@ -661,20 +684,45 @@ vec3 cast_ray_voxel(dvec3 start, dvec3 dir, uint root) {
         size /= 2.0;
     }
 
-    return closestleaf.colour;
+    return closestleaf;
 }
-
+const uint RPP = 20;
+const uint RBC = 4; // + 1
+const uint maxgroupsize = 32; // 2^(RBC - 1)
+const float EMISSION = 15.0;
 void main() {
-    dvec2 coords = dvec2(gl_GlobalInvocationID.xy) / dvec2(imageSize(img));
+    vec2 coords = vec2(gl_GlobalInvocationID.xy) / vec2(imageSize(img));
+    vec2 pixelsize = vec2(1.0) / vec2(imageSize(img));
 
-    dvec3 start =  pc.campos;
-    dvec3 ray =  ((coords.x * 2.0 - 1.0) * pc.right) + ((coords.y * 2.0 - 1.0) * pc.up) + pc.forward;
-
-/// cyan vec3(0.0, 183.0 / 255.0, 235.0 / 255.0)
-    vec4 to_write = vec4(0.0,0.0,0.0,1.0);
+    vec3 colour = vec3(0.0);
+    uint count = 0;
 
 
-    to_write = vec4(cast_ray_voxel(start, ray, 1), 1.0);
+
+    RayTarget groups[RBC];
+
+    for(uint r = 0; r < RPP; r++){
+        vec2 randcoord = coords + (pixelsize * vec2(rand(vec2(coords) * float(r)),
+ rand(vec2(coords) * float(r + 1))));
+        vec3 raydir = ((randcoord.x * 2.0 - 1.0) * vec3(pc.right)) + ((randcoord.y * 2.0 - 1.0) * vec3(pc.up)) + vec3(pc.forward);
+        vec3 start =  vec3(pc.campos);
+
+        groups[0] = cast_ray_voxel(start, raydir, 1, 1);
+
+        for(uint g = 1; g < RBC; g++){
+            float specular= round(rand(randcoord));
+            vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, vec2(randcoord) * g);
+            float roughness = get_voxel_roughness(groups[g-1].node);
+            vec3 specdir=(roughness * newdir) + ((1.0 - roughness) * reflectvec(groups[g-1].raydir, groups[g-1].hitnormal));
+            groups[g] = cast_ray_voxel(groups[g-1].hitlocation + (EPSILON * groups[g-1].hitnormal), (newdir * (1.0-specular)) + (specdir * specular), 1, specular);
+        }
+
+        colour += get_voxel_colour(groups[0].node);
+        count++;
+    }
+
+
+    vec4 to_write = vec4(colour / count,1.0);
 
     imageStore(img, ivec2(gl_GlobalInvocationID.xy), to_write);
 }"
@@ -752,8 +800,6 @@ void main() {
     )
     .expect("failed to create buffer");
 
-    let gpustart = std::time::Instant::now();
-
     let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
         .unwrap()
         .dispatch(
@@ -767,6 +813,8 @@ void main() {
         .unwrap()
         .build()
         .unwrap();
+
+    let gpustart = std::time::Instant::now();
 
     let finished = command_buffer.execute(queue.clone()).unwrap();
     finished
