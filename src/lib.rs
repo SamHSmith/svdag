@@ -125,7 +125,7 @@ impl VoxelNode {
         }
     }
 }
-use antelope::cgmath::{Vector3, InnerSpace};
+use cgmath::{Vector3, InnerSpace};
 use num_traits::float::Float;
 
 #[inline(always)]
