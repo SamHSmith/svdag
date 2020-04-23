@@ -171,8 +171,8 @@ fn cast_ray_voxel<'a>(
     }
 }
 
-const RPP: usize = 200;
-const RBC: usize = 4;
+const RPP: usize = 500;
+const RBC: usize = 3;
 const EMISSION: f64 = 15.0;
 
 fn cast_pixel(
@@ -297,8 +297,8 @@ fn main() {
     let width: usize = 512;
     let height: usize = 512;
 
-    let campos = new_vec(-0.7, -0.8, -1.8);
-    let camrot = new_vec(-20.0, 20.0, 0.0);
+    let mut campos = new_vec(-0.2, -0.6, -0.5);
+    let mut camrot = new_vec(-80.0, 0.0, 0.0);
     let rotation = Quaternion::from(Euler {
         x: Deg(camrot.x),
         y: Deg(camrot.y),
@@ -1175,15 +1175,18 @@ void main() {
             z: 1.0,
         };
 
-    let push_constants = cs::ty::pushConstants {
-        campos: [campos.x, campos.y, campos.z],
-        right: [right.x, right.y, right.z],
-        up: [up.x, up.y, up.z],
-        forward: [forward.x, forward.y, forward.z],
-        _dummy0: [0; 8],
-        _dummy1: [0; 8],
-        _dummy2: [0; 8],
-    };
+    fn gen_push_const(campos : Vector3<f64>, right : Vector3<f64>, up : Vector3<f64>, forward : Vector3<f64>) -> cs::ty::pushConstants{
+        let push_constants = cs::ty::pushConstants {
+            campos: [campos.x, campos.y, campos.z],
+            right: [right.x, right.y, right.z],
+            up: [up.x, up.y, up.z],
+            forward: [forward.x, forward.y, forward.z],
+            _dummy0: [0; 8],
+            _dummy1: [0; 8],
+            _dummy2: [0; 8],
+        };
+        return push_constants;
+    }
 {
     let buf = CpuAccessibleBuffer::from_iter(
         device.clone(),
@@ -1199,7 +1202,7 @@ void main() {
             [(width / 8) as u32, (height / 8) as u32, RPP as u32],
             compute_pipeline.clone(),
             (set.clone()),
-            push_constants,
+            gen_push_const(campos, right, up, forward),
         )
         .unwrap()
         .dispatch(
@@ -1300,6 +1303,8 @@ void main() {
         // Specify the color to clear the framebuffer with i.e. blue
         let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
 
+        campos += forward / 1000.0;
+
         let command_buffer =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
             .unwrap()
@@ -1307,7 +1312,7 @@ void main() {
                 [(width / 8) as u32, (height / 8) as u32, RPP as u32],
                 compute_pipeline.clone(),
                 (set.clone()),
-                push_constants,
+                gen_push_const(campos, right, up, forward),
             )
             .unwrap()
             .dispatch(
