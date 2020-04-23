@@ -500,7 +500,7 @@ fn main() {
         Format::R8G8B8A8Unorm,
         Some(queue.family()),
     )
-    .unwrap();
+        .unwrap();
 
     let imagestep = StorageImage::new(
         device.clone(),
@@ -573,6 +573,19 @@ fn main() {
         .unwrap()
     };
 
+    use vulkano::image::AttachmentImage;
+    use vulkano::image::ImageUsage;
+    use vulkano::format;
+
+    let mut _usage = ImageUsage::none();
+    _usage.sampled = true;
+    _usage.transfer_destination = true;
+
+    let rayimages : Vec<Arc<AttachmentImage<format::R8G8B8A8Srgb>>> = (0..images.len()).into_iter()
+        .map(|x| AttachmentImage::with_usage(device.clone(), [256,256], format::R8G8B8A8Srgb, _usage).unwrap()
+    ).collect();
+
+
     // We now create a buffer that will store the shape of our triangle.
     let vertex_buffer = {
         #[derive(Default, Debug, Clone)]
@@ -634,9 +647,9 @@ fn main() {
         layout(location = 0) in vec2 position;
 				layout(location = 0) out vec4 f_color;
 
-        layout(set = 0, binding = 0, rgba8) uniform readonly image2D img;
+        layout(set = 0, binding = 0) uniform sampler2D img;
 				void main() {
-					f_color = imageLoad(img, ivec2(position * vec2(imageSize(img).xy)));
+					f_color = texture(img, position);
 				}
 			"
         }
@@ -1127,19 +1140,23 @@ void main() {
         .unwrap(),
     );
 
-    let setg = Arc::new(
-        PersistentDescriptorSet::start(
+    use vulkano::sampler::Sampler;
+    let _sampler = Sampler::simple_repeat_linear_no_mipmap(device.clone());
+
+    let mut setg = Vec::new();
+    for i in 0..images.len() {
+        setg.push(Arc::new(PersistentDescriptorSet::start(
             pipeline
                 .layout()
                 .descriptor_set_layout(0)
                 .unwrap()
                 .clone(),
         )
-            .add_image(image.clone())
-            .unwrap()
-            .build()
-            .unwrap(),
-    );
+                           .add_sampled_image(rayimages[i].clone(), _sampler.clone())
+                  .unwrap()
+                  .build()
+                  .unwrap()));
+    }
 
     let right = rotation
         * Vector3::<f64> {
@@ -1169,7 +1186,7 @@ void main() {
         _dummy1: [0; 8],
         _dummy2: [0; 8],
     };
-
+{
     let buf = CpuAccessibleBuffer::from_iter(
         device.clone(),
         BufferUsage::all(),
@@ -1198,7 +1215,7 @@ void main() {
         .unwrap()
         .build()
         .unwrap();
-
+    
     let gpustart = std::time::Instant::now();
 
     let finished = command_buffer.execute(queue.clone()).unwrap();
@@ -1216,7 +1233,7 @@ void main() {
             .unwrap();
     image.save("image2.png").unwrap();
 
-    println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
+    println!("Gpu took {} ms", (gpuend - gpustart).as_millis());}
 
     let mut recreate_swapchain = false;
 
@@ -1302,6 +1319,8 @@ void main() {
                 (),
             )
             .unwrap()
+            .copy_image(image.clone(), [0; 3], 0, 0, rayimages[image_num].clone(), [0; 3], 0, 0, [256,256,1], 1)
+            .unwrap()
                 // Before we can draw, we have to *enter a render pass*. There are two methods to do
                 // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is
                 // not covered here.
@@ -1319,7 +1338,7 @@ void main() {
                     pipeline.clone(),
                     &dynamic_state,
                     vertex_buffer.clone(),
-                    (setg.clone()),
+                    (setg[image_num].clone()),
                     (),
                 )
                 .unwrap()
