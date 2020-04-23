@@ -171,7 +171,7 @@ fn cast_ray_voxel<'a>(
     }
 }
 
-const RPP: usize = 50;
+const RPP: usize = 200;
 const RBC: usize = 4;
 const EMISSION: f64 = 15.0;
 
@@ -294,8 +294,8 @@ fn main() {
     //node.flags =1;
     node.colour = [255, 183, 235];
 
-    let width: usize = 256;
-    let height: usize = 256;
+    let width: usize = 512;
+    let height: usize = 512;
 
     let campos = new_vec(-0.7, -0.8, -1.8);
     let camrot = new_vec(-20.0, 20.0, 0.0);
@@ -380,8 +380,6 @@ fn main() {
     use vulkano::format::Format;
     use vulkano::image::Dimensions;
     use vulkano::image::StorageImage;
-    use vulkano::instance::Instance;
-    use vulkano::instance::InstanceExtensions;
     use vulkano::instance::PhysicalDevice;
     use vulkano::pipeline::ComputePipeline;
     use vulkano::sync::GpuFuture;
@@ -421,7 +419,7 @@ fn main() {
 
     glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
     let (mut window, events) = glfw
-        .create_window(256, 256, "Hello this is window", glfw::WindowMode::Windowed)
+        .create_window(512, 512, "Hello this is window", glfw::WindowMode::Windowed)
         .expect("Failed to create GLFW window."); //TODO WRAP
 
     /// This method is called once during initialization, then again whenever the window is resized
@@ -581,8 +579,8 @@ fn main() {
     _usage.sampled = true;
     _usage.transfer_destination = true;
 
-    let rayimages : Vec<Arc<AttachmentImage<format::R8G8B8A8Srgb>>> = (0..images.len()).into_iter()
-        .map(|x| AttachmentImage::with_usage(device.clone(), [256,256], format::R8G8B8A8Srgb, _usage).unwrap()
+    let rayimages : Vec<Arc<AttachmentImage<format::R8G8B8A8Unorm>>> = (0..images.len()).into_iter()
+        .map(|x| AttachmentImage::with_usage(device.clone(), [width as u32,height as u32], format::R8G8B8A8Unorm, _usage).unwrap()
     ).collect();
 
 
@@ -787,8 +785,6 @@ vec3 biggest_axis(vec3 v){
 uint get_byte(uint src, uint byte){
     src = src << (3 - byte) * 8;
     src = src >> 3 * 8;
-    return src;
-    src = src << 3 * 8;
     return src;
 }
 
@@ -996,6 +992,7 @@ vec3 calculate_colour(RayTarget t, vec3 nc, float ns){
     colour *= (1.0 - get_voxel_emission(t.node));
     colour += get_voxel_colour(t.node) * get_voxel_emission(t.node) * EMISSION;
     colour *= length(t.hitnormal);
+
     return colour;
 }
 
@@ -1088,6 +1085,7 @@ void main() {
 
     final = vec3(min(1.0,max(final.x,0.0)),min(1.0,max(final.y,0.0)),min(1.0,max(final.z,0.0)));
 
+    //imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, 1.0));
     imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, 1.0));
 }
 "
@@ -1319,7 +1317,7 @@ void main() {
                 (),
             )
             .unwrap()
-            .copy_image(image.clone(), [0; 3], 0, 0, rayimages[image_num].clone(), [0; 3], 0, 0, [256,256,1], 1)
+            .copy_image(image.clone(), [0; 3], 0, 0, rayimages[image_num].clone(), [0; 3], 0, 0, [width as u32,height as u32,1], 1)
             .unwrap()
                 // Before we can draw, we have to *enter a render pass*. There are two methods to do
                 // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is

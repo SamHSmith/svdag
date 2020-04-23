@@ -22,6 +22,7 @@ impl<'a> VoxelTree {
         let node = self.get_node(new);
         node.childmask=0;
         node.flags=0;
+        node.emission = 0;
 
         new
     }
