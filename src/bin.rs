@@ -171,10 +171,10 @@ fn cast_ray_voxel<'a>(
     }
 }
 
-const WIDTH: usize = 128;
-const HEIGHT: usize = 128;
+const WIDTH: usize = 256;
+const HEIGHT: usize = 256;
 
-const RPP: usize = 100;
+const RPP: usize = 25;
 const RBC: usize = 3;
 const EMISSION: f64 = 15.0;
 
@@ -272,6 +272,7 @@ fn main() {
     node.put_child(1, tree.allocate_node());
     node.get_child(tree, 1).flags = 1;
     node.get_child(tree, 1).colour = [70, 50, 90];
+    node.get_child(tree, 1).emission = 0;
     node.get_child(tree, 1).roughness = 210;
     node.put_child(0, tree.allocate_node());
     let node2: &mut VoxelNode = node.get_child(tree, 0);
@@ -507,7 +508,7 @@ fn main() {
             height: HEIGHT as u32,
             depth: RPP as u32,
         },
-        Format::R8G8B8A8Unorm,
+        Format::R16G16B16A16Unorm,
         Some(queue.family()),
     )
     .unwrap();
@@ -741,14 +742,15 @@ layout(set = 0, binding = 1) buffer VoxelBuffer {
 };
 
 layout(push_constant) uniform pushConstants {
-    dvec3 campos;
-    dvec3 right;
-    dvec3 up;
-    dvec3 forward;
+    vec3 campos;
+    vec3 right;
+    vec3 up;
+    vec3 forward;
+    uint framenum;
 } pc;
 
 float rand(vec2 co){
-    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+    return fract(sin(dot(vec2(co.x + float(pc.framenum * 5), co.y * float(pc.framenum + 2)),vec2(12.9898,78.233))) * 43758.5453);
 }
 
 vec3 reflectvec(vec3 v, vec3 normal){
@@ -757,7 +759,7 @@ vec3 reflectvec(vec3 v, vec3 normal){
 
 const float F0 = 0.04;
 float fresnel(vec3 v, vec3 normal){
-    return F0 + ((1.0 - F0) * pow((1.0 - dot(normal,v)),5.0));
+    return F0 + ((1.0 - F0) * pow(1.0 - dot(normal,v),5.0));
 }
 
 vec3 rand_dir_from_surf(vec3 normal, vec2 co){
@@ -1010,7 +1012,7 @@ void main() {
         vec3 raydir = ((randcoord.x * 2.0 - 1.0) * vec3(pc.right)) + ((randcoord.y * 2.0 - 1.0) * vec3(pc.up)) + vec3(pc.forward);
         vec3 start =  vec3(pc.campos);
 
-        groups[0] = cast_ray_voxel(start, normalize(raydir), 1, round(float(rand(randcoord))));
+        groups[0] = cast_ray_voxel(start, normalize(raydir), 1, 0);
 
         if(length(groups[0].hitnormal) < EPSILON){
 imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(0.0,0.0,0.0,1.0));
@@ -1039,6 +1041,8 @@ return; }
     biggest = max(biggest, colour.z);
 
     colour /= biggest;
+
+    //colour = get_voxel_colour(groups[1].node);
 
     imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, biggest / EMISSION));
 }"
@@ -1175,15 +1179,16 @@ void main() {
             z: 1.0,
         };
 
-    fn gen_push_const(campos : Vector3<f64>, right : Vector3<f64>, up : Vector3<f64>, forward : Vector3<f64>) -> cs::ty::pushConstants{
+    fn gen_push_const(campos : Vector3<f64>, right : Vector3<f64>, up : Vector3<f64>, forward : Vector3<f64>, framenum : u32) -> cs::ty::pushConstants{
         let push_constants = cs::ty::pushConstants {
-            campos: [campos.x, campos.y, campos.z],
-            right: [right.x, right.y, right.z],
-            up: [up.x, up.y, up.z],
-            forward: [forward.x, forward.y, forward.z],
-            _dummy0: [0; 8],
-            _dummy1: [0; 8],
-            _dummy2: [0; 8],
+            campos: [campos.x as f32, campos.y as f32, campos.z as f32],
+            right: [right.x as f32, right.y as f32, right.z as f32],
+            up: [up.x as f32, up.y as f32, up.z as f32],
+            forward: [forward.x as f32, forward.y as f32, forward.z as f32],
+            _dummy0: [0; 4],
+            _dummy1: [0; 4],
+            _dummy2: [0; 4],
+            framenum: framenum,
         };
         return push_constants;
     }
@@ -1202,7 +1207,7 @@ void main() {
             [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
             compute_pipeline.clone(),
             (set.clone()),
-            gen_push_const(campos, right, up, forward),
+            gen_push_const(campos, right, up, forward, 1),
         )
         .unwrap()
         .dispatch(
@@ -1216,7 +1221,7 @@ void main() {
         .unwrap()
         .build()
         .unwrap();
-    
+
     let gpustart = std::time::Instant::now();
 
     let finished = command_buffer.execute(queue.clone()).unwrap();
@@ -1246,8 +1251,13 @@ void main() {
     // that, we store the submission of the previous frame here.
     let mut previous_frame_end = Some(Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>);
 
+    let mut framenum : u32 = 0;
+
     while !window.should_close() {
         glfw.poll_events();
+
+        framenum += 1;
+
         // It is important to call this function from time to time, otherwise resources will keep
         // accumulating and you will eventually reach an out of memory error.
         // Calling this function polls various fences in order to determine what the GPU has
@@ -1312,7 +1322,7 @@ void main() {
                 [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
                 compute_pipeline.clone(),
                 (set.clone()),
-                gen_push_const(campos, right, up, forward),
+                gen_push_const(campos, right, up, forward, framenum),
             )
             .unwrap()
             .dispatch(
