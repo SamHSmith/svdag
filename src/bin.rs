@@ -171,7 +171,10 @@ fn cast_ray_voxel<'a>(
     }
 }
 
-const RPP: usize = 500;
+const WIDTH: usize = 128;
+const HEIGHT: usize = 128;
+
+const RPP: usize = 100;
 const RBC: usize = 3;
 const EMISSION: f64 = 15.0;
 
@@ -216,7 +219,7 @@ fn cast_pixel(
 
         let mut combinecolour: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
 
-        if rand::random() {
+        if rand::random::<f64>() > ( 0.5 * (1.0 - cast1.metalness)) {
             let specular_colour = (1.0 - cast1.emission)
                 * point_wise_mul(
                     specular_highlight,
@@ -294,9 +297,6 @@ fn main() {
     //node.flags =1;
     node.colour = [255, 183, 235];
 
-    let width: usize = 512;
-    let height: usize = 512;
-
     let mut campos = new_vec(-0.2, -0.6, -0.5);
     let mut camrot = new_vec(-80.0, 0.0, 0.0);
     let rotation = Quaternion::from(Euler {
@@ -307,7 +307,7 @@ fn main() {
 
     let cubepos = new_vec(0.0, 0.0, 0.0);
 
-    let mut buffer: Vec<u8> = vec![0; (width * height * 3) as usize]; // Generate the image data;
+    let mut buffer: Vec<u8> = vec![0; (WIDTH * HEIGHT * 3) as usize]; // Generate the image data;
 
     let startcpu = std::time::Instant::now();
 
@@ -316,20 +316,20 @@ fn main() {
 
     let columnsdone = Mutex::new(0 as usize);
 
-    let maxindex: usize = width * height;
+    let maxindex: usize = WIDTH * HEIGHT;
     let chunksize: usize = 1000;
 
     (0..(maxindex / chunksize)).into_par_iter().for_each(|w| {
         for s in 0..(chunksize.min(maxindex.saturating_sub(w * chunksize))) {
-            let x = ((w * chunksize) + s) % width;
-            let y = (((w * chunksize) + s) - x) / width;
-            let pixelwidth = 1.0 / width as f64;
-            let fx = x as f64 * pixelwidth;
-            let pixelheight = 1.0 / height as f64;
-            let fy = y as f64 * pixelheight;
+            let x = ((w * chunksize) + s) % WIDTH;
+            let y = (((w * chunksize) + s) - x) / WIDTH;
+            let pixelWIDTH = 1.0 / WIDTH as f64;
+            let fx = x as f64 * pixelWIDTH;
+            let pixelHEIGHT = 1.0 / HEIGHT as f64;
+            let fy = y as f64 * pixelHEIGHT;
 
-            let hw = pixelwidth / 2.0;
-            let hh = pixelheight / 2.0;
+            let hw = pixelWIDTH / 2.0;
+            let hh = pixelHEIGHT / 2.0;
 
             let index = (((w * chunksize) + s) * 3 as usize);
             let colour: [u8; 3] = cast_pixel(
@@ -360,7 +360,7 @@ fn main() {
     let cpuend = std::time::Instant::now();
 
     // Save the buffer as "image.png"
-    image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(width as u32, height as u32, &buffer[..])
+    image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer[..])
         .unwrap()
         .save("image.png")
         .unwrap();
@@ -492,8 +492,8 @@ fn main() {
     let image = StorageImage::new(
         device.clone(),
         Dimensions::Dim2d {
-            width: width as u32,
-            height: height as u32,
+            width: WIDTH as u32,
+            height: HEIGHT as u32,
         },
         Format::R8G8B8A8Unorm,
         Some(queue.family()),
@@ -503,8 +503,8 @@ fn main() {
     let imagestep = StorageImage::new(
         device.clone(),
         Dimensions::Dim3d {
-            width: width as u32,
-            height: height as u32,
+            width: WIDTH as u32,
+            height: HEIGHT as u32,
             depth: RPP as u32,
         },
         Format::R8G8B8A8Unorm,
@@ -580,7 +580,7 @@ fn main() {
     _usage.transfer_destination = true;
 
     let rayimages : Vec<Arc<AttachmentImage<format::R8G8B8A8Unorm>>> = (0..images.len()).into_iter()
-        .map(|x| AttachmentImage::with_usage(device.clone(), [width as u32,height as u32], format::R8G8B8A8Unorm, _usage).unwrap()
+        .map(|x| AttachmentImage::with_usage(device.clone(), [WIDTH as u32,HEIGHT as u32], format::R8G8B8A8Unorm, _usage).unwrap()
     ).collect();
 
 
@@ -1010,7 +1010,7 @@ void main() {
         vec3 raydir = ((randcoord.x * 2.0 - 1.0) * vec3(pc.right)) + ((randcoord.y * 2.0 - 1.0) * vec3(pc.up)) + vec3(pc.forward);
         vec3 start =  vec3(pc.campos);
 
-        groups[0] = cast_ray_voxel(start, raydir, 1, round(float(rand(randcoord))));
+        groups[0] = cast_ray_voxel(start, normalize(raydir), 1, round(float(rand(randcoord))));
 
         if(length(groups[0].hitnormal) < EPSILON){
 imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(0.0,0.0,0.0,1.0));
@@ -1018,10 +1018,10 @@ return; }
 
         for(uint g = 1; g < RBC; g++){
             float roughness = get_voxel_roughness(groups[g-1].node);
-            float specular= round(float(rand(randcoord * (g + 1))));
+            float specular= round(float(rand(randcoord * (g + 1)) > (0.5 * (1.0 - get_voxel_metalness(groups[g-1].node)))));
             vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, vec2(randcoord) * float(g));
             vec3 specdir=(roughness * newdir) + ((1.0 - roughness) * reflectvec(groups[g-1].raydir, groups[g-1].hitnormal));
-            groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), (newdir * (1.0-specular)) + (specdir * specular), 1, specular);
+            groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), normalize((newdir * (1.0-specular)) + (specdir * specular)), 1, specular);
         }
         vec3[RBC] colours;
         colours[RBC - 1]= calculate_colour(groups[RBC-1], vec3(0.0), 0.0);
@@ -1192,21 +1192,21 @@ void main() {
         device.clone(),
         BufferUsage::all(),
         false,
-        (0..width * height * 4).map(|_| 0u8),
+        (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
     )
     .expect("failed to create buffer");
 
     let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
         .unwrap()
         .dispatch(
-            [(width / 8) as u32, (height / 8) as u32, RPP as u32],
+            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
             compute_pipeline.clone(),
             (set.clone()),
             gen_push_const(campos, right, up, forward),
         )
         .unwrap()
         .dispatch(
-            [(width / 8) as u32, (height / 8) as u32, 1],
+            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
             compute_pipeline2.clone(),
             (set2.clone()),
             (),
@@ -1230,7 +1230,7 @@ void main() {
 
     let buffer_content = buf.read().unwrap();
     let image =
-        ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, &buffer_content[..])
+        ImageBuffer::<Rgba<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer_content[..])
             .unwrap();
     image.save("image2.png").unwrap();
 
@@ -1309,20 +1309,20 @@ void main() {
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
             .unwrap()
             .dispatch(
-                [(width / 8) as u32, (height / 8) as u32, RPP as u32],
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
                 compute_pipeline.clone(),
                 (set.clone()),
                 gen_push_const(campos, right, up, forward),
             )
             .unwrap()
             .dispatch(
-                [(width / 8) as u32, (height / 8) as u32, 1],
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                 compute_pipeline2.clone(),
                 (set2.clone()),
                 (),
             )
             .unwrap()
-            .copy_image(image.clone(), [0; 3], 0, 0, rayimages[image_num].clone(), [0; 3], 0, 0, [width as u32,height as u32,1], 1)
+            .copy_image(image.clone(), [0; 3], 0, 0, rayimages[image_num].clone(), [0; 3], 0, 0, [WIDTH as u32,HEIGHT as u32,1], 1)
             .unwrap()
                 // Before we can draw, we have to *enter a render pass*. There are two methods to do
                 // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is
