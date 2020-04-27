@@ -6,6 +6,9 @@ mod tests {
     }
 }
 
+pub mod render;
+
+
 #[derive(Copy, Clone)]
 pub struct VoxelTree {
     pub base: *mut u32,

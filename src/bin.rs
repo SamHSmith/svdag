@@ -1,373 +1,17 @@
 use cgmath::prelude::One;
 use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
-use lib::*;
-
-const EPSILON: f64 = 0.000002;
-
-fn cast_ray_v_box(start: Vector3<f64>, dir: Vector3<f64>, size: f64) -> (f64, Vector3<f64>) {
-    let t1 = (size * -0.5 - start.x) / dir.x;
-    let t2 = (size * 0.5 - start.x) / dir.x;
-
-    let t3 = (size * -0.5 - start.y) / dir.y;
-    let t4 = (size * 0.5 - start.y) / dir.y;
-
-    let t5 = (size * -0.5 - start.z) / dir.z;
-    let t6 = (size * 0.5 - start.z) / dir.z;
-
-    #[inline(always)]
-    fn inbox(x: f64, y: f64, z: f64, size: f64) -> bool {
-        return x + EPSILON >= size * -0.5
-            && x - EPSILON <= size * 0.5
-            && y + EPSILON >= size * -0.5
-            && y - EPSILON <= size * 0.5
-            && z + EPSILON >= size * -0.5
-            && z - EPSILON <= size * 0.5;
-    }
-
-    let pos1 = start + dir * t1;
-    let pos2 = start + dir * t2;
-    let pos3 = start + dir * t3;
-    let pos4 = start + dir * t4;
-    let pos5 = start + dir * t5;
-    let pos6 = start + dir * t6;
-
-    let mut b1 =
-        (1.0 - (inbox(pos1.x, pos1.y, pos1.z, size) && t1 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b2 =
-        (1.0 - (inbox(pos2.x, pos2.y, pos2.z, size) && t2 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b3 =
-        (1.0 - (inbox(pos3.x, pos3.y, pos3.z, size) && t3 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b4 =
-        (1.0 - (inbox(pos4.x, pos4.y, pos4.z, size) && t4 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b5 =
-        (1.0 - (inbox(pos5.x, pos5.y, pos5.z, size) && t5 > 0.0) as i64 as f64) * std::f64::MAX;
-    let mut b6 =
-        (1.0 - (inbox(pos6.x, pos6.y, pos6.z, size) && t6 > 0.0) as i64 as f64) * std::f64::MAX;
-
-    b1 = b1.max(t1);
-    b2 = b2.max(t2);
-    b3 = b3.max(t3);
-    b4 = b4.max(t4);
-    b5 = b5.max(t5);
-    b6 = b6.max(t6);
-
-    let min = b1.min(b2.min(b3.min(b4.min(b5.min(b6)))));
-
-    (
-        min,
-        (pos1 * (b1 == min) as u64 as f64)
-            + (pos2 * (b2 == min) as u64 as f64)
-            + (pos3 * (b3 == min) as u64 as f64)
-            + (pos4 * (b4 == min) as u64 as f64)
-            + (pos5 * (b5 == min) as u64 as f64)
-            + (pos6 * (b6 == min) as u64 as f64),
-    )
-}
-
-struct RayTarget<'a> {
-    distance: f64,
-    node: &'a VoxelNode,
-    nodelocation: Vector3<f64>,
-    hitpos: Vector3<f64>, //relative to the omnicube
-}
-
-struct RayResult {
-    colour: Vector3<f64>,
-    emission: f64,
-    metalness: f64,
-    roughness: f64,
-    hitlocation: Vector3<f64>,
-    hitnormal: Vector3<f64>,
-    dead: usize,
-}
-
-fn dead_ray() -> RayResult {
-    RayResult {
-        colour: new_vec(0.0, 0.0, 0.0),
-        emission: 0.0,
-        metalness: 0.0,
-        roughness: 0.0,
-        hitlocation: new_vec(0.0, 0.0, 0.0),
-        hitnormal: new_vec(0.0, 0.0, 0.0),
-        dead: 0,
-    }
-}
-
-fn cast_ray_voxel<'a>(
-    start: Vector3<f64>,
-    dir: Vector3<f64>,
-    root: &VoxelNode,
-    tree: VoxelTree,
-) -> RayResult {
-    let mut size: f64 = 1.0;
-    let mut activenodes: Vec<&VoxelNode> = Vec::new();
-    let mut nodelocations: Vec<Vector3<f64>> = Vec::new();
-    activenodes.push(root);
-    nodelocations.push(new_vec(0.0, 0.0, 0.0));
-
-    let mut closestleaf = (std::f64::MAX, None);
-
-    let mut x = 0;
-    while x < activenodes.len() {
-        let mut targets: Vec<RayTarget> = Vec::new();
-        for i in 0..activenodes.len() {
-            let (distance, pos) = cast_ray_v_box(start - nodelocations[i], dir, size);
-            targets.push(RayTarget {
-                distance,
-                node: activenodes[i],
-                nodelocation: nodelocations[i],
-                hitpos: pos,
-            });
-
-            x += 1;
-        }
-        targets.sort_by(|a, b| (a.distance).partial_cmp(&b.distance).unwrap());
-        for h in 0..targets.len() {
-            let hit = &targets[h];
-            if (hit.distance.is_normal() && hit.distance < std::f64::MAX) {
-                if hit.node.flags & 1 != 0 {
-                    //leaf
-                    if hit.distance < closestleaf.0 {
-                        closestleaf = (
-                            hit.distance,
-                            Some(RayResult {
-                                colour: new_vec(
-                                    hit.node.colour[0] as f64,
-                                    hit.node.colour[1] as f64,
-                                    hit.node.colour[2] as f64,
-                                ) / 255.0,
-                                emission: hit.node.emission as f64 / 255.0,
-                                metalness: hit.node.metalness as f64 / 255.0,
-                                roughness: hit.node.roughness as f64 / 255.0,
-                                hitlocation: hit.nodelocation + hit.hitpos,
-                                hitnormal: get_biggest_axis(hit.hitpos).normalize(),
-                                dead: 1,
-                            }),
-                        );
-                    }
-                } else {
-                    for c in 0..8 {
-                        let child: u8 = 1 << c;
-
-                        if hit.node.childmask & child != 0 {
-                            nodelocations
-                                .push(hit.nodelocation + (oct_byte_to_vec(child) * size / 2.0));
-                            activenodes.push(hit.node.get_child(tree, c));
-                        }
-                    }
-                }
-            }
-        }
-
-        activenodes.drain(0..x);
-        nodelocations.drain(0..x);
-        x = 0;
-        size /= 2.0;
-    }
-
-    match closestleaf.1 {
-        Some(c) => return c,
-        None => return dead_ray(),
-    }
-}
+use lib::render::cpu::CpuRenderer;
+use lib::render::*;
 
 const WIDTH: usize = 256;
 const HEIGHT: usize = 256;
 
 const RPP: usize = 25;
 const RBC: usize = 3;
-const EMISSION: f64 = 15.0;
 
-fn cast_pixel(
-    fxmin: f64,
-    fxmax: f64,
-    fymin: f64,
-    fymax: f64,
-    campos: Vector3<f64>,
-    camrot: Quaternion<f64>,
-    tree: VoxelTree,
-    root: &VoxelNode,
-) -> [u8; 3] {
-    fn do_ray(
-        dir: Vector3<f64>,
-        start: Vector3<f64>,
-        bouncesleft: usize,
-        tree: VoxelTree,
-        root: &VoxelNode,
-    ) -> Vector3<f64> {
-        if (bouncesleft <= 0) {
-            return new_vec(0.0, 0.0, 0.0);
-        }
-
-        let cast1 = cast_ray_voxel(start, dir, root, tree);
-
-        if cast1.dead == 0 {
-            return new_vec(0.0, 0.0, 0.0);
-        }
-
-        let fresnel = fresnel(-dir, cast1.hitnormal) * (1.0 - cast1.roughness);
-
-        let specular = fresnel * ((0.5 * (1.0 - cast1.metalness)) + (0.98 * cast1.metalness));
-
-        let specular_highlight = ((new_vec(0.5, 0.5, 0.5) * (1.0 - cast1.metalness))
-            + (cast1.colour * cast1.metalness))
-            * specular;
-
-        let diffuse = 0.5 * (1.0 - cast1.metalness);
-
-        let newdir = rand_dir_from_surf(cast1.hitnormal);
-
-        let mut combinecolour: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
-
-        if rand::random::<f64>() > ( 0.5 * (1.0 - cast1.metalness)) {
-            let specular_colour = (1.0 - cast1.emission)
-                * point_wise_mul(
-                    specular_highlight,
-                    do_ray(
-                        (newdir * cast1.roughness)
-                            + (reflect(dir, cast1.hitnormal) * (1.0 - cast1.roughness)),
-                        cast1.hitlocation,
-                        bouncesleft - 1,
-                        tree,
-                        root,
-                    ),
-                );
-            combinecolour += specular_colour;
-        } else {
-            let diffuse_colour = (1.0 - cast1.emission)
-                * (diffuse
-                    * point_wise_mul(
-                        cast1.colour,
-                        do_ray(newdir, cast1.hitlocation, bouncesleft - 1, tree, root),
-                    ));
-            combinecolour += diffuse_colour;
-        }
-        let emissive_colour = (cast1.colour * cast1.emission * EMISSION);
-
-        emissive_colour + combinecolour
-    }
-
-    let mut colour: Vector3<f64> = new_vec(0.0, 0.0, 0.0);
-    let mut count = 0;
-
-    for _ in 0..RPP {
-        let raydir = camrot
-            * new_vec(
-                (random_mix(fxmin, fxmax) * 2.0 - 1.0),
-                (random_mix(fymin, fymax) * 2.0 - 1.0),
-                1.0,
-            );
-        count += 1;
-        colour += do_ray(raydir, campos, RBC, tree, root);
-    }
-
-    colour /= count as f64;
-
-    return linear_to_srgb(colour);
-}
+use lib::*;
 
 fn main() {
-    let mut tree = allocate(500);
-    let node: &mut VoxelNode = tree.allocate_and_get_node();
-    node.put_child(1, tree.allocate_node());
-    node.get_child(tree, 1).flags = 1;
-    node.get_child(tree, 1).colour = [70, 50, 90];
-    node.get_child(tree, 1).emission = 0;
-    node.get_child(tree, 1).roughness = 210;
-    node.put_child(0, tree.allocate_node());
-    let node2: &mut VoxelNode = node.get_child(tree, 0);
-    node2.put_child(3, tree.allocate_node());
-    node2.get_child(tree, 3).flags = 1;
-    node2.get_child(tree, 3).colour = [130, 100, 2];
-    node2.get_child(tree, 3).roughness = 35;
-    node2.put_child(2, tree.allocate_node());
-    node2.get_child(tree, 2).flags = 1;
-    node2.get_child(tree, 2).colour = [255, 219, 145];
-    node2.get_child(tree, 2).roughness = 20;
-    node2.get_child(tree, 2).metalness = 255;
-    node2.put_child(5, tree.allocate_node());
-    node2.get_child(tree, 5).flags = 1;
-    node2.get_child(tree, 5).colour = [100, 100, 100];
-    node2.get_child(tree, 5).emission = 255;
-    node2.get_child(tree, 5).roughness = 255;
-    node2.put_child(7, tree.allocate_node());
-    node2.get_child(tree, 7).flags = 1;
-    node2.get_child(tree, 7).colour = [20, 50, 180];
-    node2.get_child(tree, 7).roughness = 240;
-
-    //node.flags =1;
-    node.colour = [255, 183, 235];
-
-    let mut campos = new_vec(-0.2, -0.6, -0.5);
-    let mut camrot = new_vec(-80.0, 0.0, 0.0);
-    let rotation = Quaternion::from(Euler {
-        x: Deg(camrot.x),
-        y: Deg(camrot.y),
-        z: Deg(camrot.z),
-    });
-
-    let cubepos = new_vec(0.0, 0.0, 0.0);
-
-    let mut buffer: Vec<u8> = vec![0; (WIDTH * HEIGHT * 3) as usize]; // Generate the image data;
-
-    let startcpu = std::time::Instant::now();
-
-    use rayon::prelude::*;
-    use std::sync::Mutex;
-
-    let columnsdone = Mutex::new(0 as usize);
-
-    let maxindex: usize = WIDTH * HEIGHT;
-    let chunksize: usize = 1000;
-
-    (0..(maxindex / chunksize)).into_par_iter().for_each(|w| {
-        for s in 0..(chunksize.min(maxindex.saturating_sub(w * chunksize))) {
-            let x = ((w * chunksize) + s) % WIDTH;
-            let y = (((w * chunksize) + s) - x) / WIDTH;
-            let pixelWIDTH = 1.0 / WIDTH as f64;
-            let fx = x as f64 * pixelWIDTH;
-            let pixelHEIGHT = 1.0 / HEIGHT as f64;
-            let fy = y as f64 * pixelHEIGHT;
-
-            let hw = pixelWIDTH / 2.0;
-            let hh = pixelHEIGHT / 2.0;
-
-            let index = (((w * chunksize) + s) * 3 as usize);
-            let colour: [u8; 3] = cast_pixel(
-                fx - hw,
-                fx + hw,
-                fy - hh,
-                fy + hh,
-                campos,
-                rotation,
-                tree,
-                node,
-            );
-            let bufferptr = buffer.as_ptr();
-            unsafe {
-                *(bufferptr.offset(index as isize) as *mut u8) = colour[0];
-                *(bufferptr.offset((index + 1) as isize) as *mut u8) = colour[1];
-                *(bufferptr.offset((index + 2) as isize) as *mut u8) = colour[2];
-            }
-        }
-        let mut percent = columnsdone.lock().unwrap();
-        *percent += 1;
-        println!(
-            "Cpu Render is {} % done",
-            ((*percent * chunksize as usize) as f64 * 100.0) / maxindex as f64
-        );
-    });
-
-    let cpuend = std::time::Instant::now();
-
-    // Save the buffer as "image.png"
-    image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer[..])
-        .unwrap()
-        .save("image.png")
-        .unwrap();
-
-    println!("Cpu took {} ms", (cpuend - startcpu).as_millis());
-
     use image::ImageBuffer;
     use image::Rgba;
     use std::sync::Arc;
@@ -473,6 +117,7 @@ fn main() {
 
     let mut feat = Features::none();
     feat.shader_f3264 = true;
+    feat.shader_storage_image_extended_formats = true;
 
     let mut exts = DeviceExtensions::none();
     exts.khr_storage_buffer_storage_class = true;
@@ -490,6 +135,105 @@ fn main() {
 
     let queue = queues.next().unwrap();
 
+    let mut tree = allocate(500);
+    let node: &mut VoxelNode = tree.allocate_and_get_node();
+    node.put_child(1, tree.allocate_node());
+    node.get_child(tree, 1).flags = 1;
+    node.get_child(tree, 1).colour = [70, 50, 90];
+    node.get_child(tree, 1).emission = 0;
+    node.get_child(tree, 1).roughness = 210;
+    node.put_child(0, tree.allocate_node());
+    let node2: &mut VoxelNode = node.get_child(tree, 0);
+    node2.put_child(3, tree.allocate_node());
+    node2.get_child(tree, 3).flags = 1;
+    node2.get_child(tree, 3).colour = [130, 100, 2];
+    node2.get_child(tree, 3).roughness = 35;
+    node2.put_child(2, tree.allocate_node());
+    node2.get_child(tree, 2).flags = 1;
+    node2.get_child(tree, 2).colour = [255, 219, 145];
+    node2.get_child(tree, 2).roughness = 20;
+    node2.get_child(tree, 2).metalness = 255;
+    node2.put_child(5, tree.allocate_node());
+    node2.get_child(tree, 5).flags = 1;
+    node2.get_child(tree, 5).colour = [100, 100, 100];
+    node2.get_child(tree, 5).emission = 255;
+    node2.get_child(tree, 5).roughness = 255;
+    node2.put_child(7, tree.allocate_node());
+    node2.get_child(tree, 7).flags = 1;
+    node2.get_child(tree, 7).colour = [20, 50, 180];
+    node2.get_child(tree, 7).roughness = 240;
+
+    //node.flags =1;
+    node.colour = [255, 183, 235];
+
+    let mut campos = new_vec(-0.2, -0.6, -0.5);
+    let mut camrot = new_vec(-80.0, 0.0, 0.0);
+    let rotation = Quaternion::from(Euler {
+        x: Deg(camrot.x),
+        y: Deg(camrot.y),
+        z: Deg(camrot.z),
+    });
+
+    let cubepos = new_vec(0.0, 0.0, 0.0);
+
+    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, 2, RBC, 1);
+    cpurend.scenes[0] = VoxelScene {
+        tree: tree,
+        root: 1,
+        camera_position: campos,
+        camera_rotation: rotation,
+    };
+    cpurend.DoRender();
+    /*
+    let buf = CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
+        )
+        .expect("failed to create buffer");
+
+        let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+                compute_pipeline.clone(),
+                (set.clone()),
+                gen_push_const(campos, right, up, forward, 1),
+            )
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline2.clone(),
+                (set2.clone()),
+                (),
+            )
+            .unwrap()
+            .copy_image_to_buffer(image.clone(), buf.clone())
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let gpustart = std::time::Instant::now();
+
+        let finished = command_buffer.execute(queue.clone()).unwrap();
+        finished
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+
+        let gpuend = std::time::Instant::now();
+
+        let buffer_content = buf.read().unwrap();
+        let image =
+            ImageBuffer::<Rgba<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer_content[..])
+                .unwrap();
+        image.save("image2.png").unwrap();
+
+        println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
+    */
+
     let image = StorageImage::new(
         device.clone(),
         Dimensions::Dim2d {
@@ -499,7 +243,7 @@ fn main() {
         Format::R8G8B8A8Unorm,
         Some(queue.family()),
     )
-        .unwrap();
+    .unwrap();
 
     let imagestep = StorageImage::new(
         device.clone(),
@@ -507,6 +251,39 @@ fn main() {
             width: WIDTH as u32,
             height: HEIGHT as u32,
             depth: RPP as u32,
+        },
+        Format::R16G16B16A16Unorm,
+        Some(queue.family()),
+    )
+    .unwrap();
+
+    let imagestep2 = StorageImage::new(
+        device.clone(),
+        Dimensions::Dim2d {
+            width: WIDTH as u32,
+            height: HEIGHT as u32,
+        },
+        Format::R16G16B16A16Unorm,
+        Some(queue.family()),
+    )
+    .unwrap();
+
+    let imagegpuout = StorageImage::new(
+        device.clone(),
+        Dimensions::Dim2d {
+            width: WIDTH as u32,
+            height: HEIGHT as u32,
+        },
+        Format::R16G16B16A16Unorm,
+        Some(queue.family()),
+    )
+    .unwrap();
+
+    let imagecombine = StorageImage::new(
+        device.clone(),
+        Dimensions::Dim2d {
+            width: WIDTH as u32,
+            height: HEIGHT as u32,
         },
         Format::R16G16B16A16Unorm,
         Some(queue.family()),
@@ -572,18 +349,26 @@ fn main() {
         .unwrap()
     };
 
+    use vulkano::format;
     use vulkano::image::AttachmentImage;
     use vulkano::image::ImageUsage;
-    use vulkano::format;
 
     let mut _usage = ImageUsage::none();
     _usage.sampled = true;
     _usage.transfer_destination = true;
 
-    let rayimages : Vec<Arc<AttachmentImage<format::R8G8B8A8Unorm>>> = (0..images.len()).into_iter()
-        .map(|x| AttachmentImage::with_usage(device.clone(), [WIDTH as u32,HEIGHT as u32], format::R8G8B8A8Unorm, _usage).unwrap()
-    ).collect();
-
+    let rayimages: Vec<Arc<AttachmentImage<format::R8G8B8A8Unorm>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            AttachmentImage::with_usage(
+                device.clone(),
+                [WIDTH as u32, HEIGHT as u32],
+                format::R8G8B8A8Unorm,
+                _usage,
+            )
+            .unwrap()
+        })
+        .collect();
 
     // We now create a buffer that will store the shape of our triangle.
     let vertex_buffer = {
@@ -736,7 +521,7 @@ fn main() {
 #define VBUFFER_SIZE 500
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-layout(set = 0, binding = 0, rgba8) uniform writeonly image3D img;
+layout(set = 0, binding = 0, rgba16) uniform writeonly image3D img;
 layout(set = 0, binding = 1) buffer VoxelBuffer {
     vec4[] data;
 };
@@ -1040,11 +825,10 @@ return; }
     biggest = max(biggest, colour.y);
     biggest = max(biggest, colour.z);
 
+
     colour /= biggest;
 
-    //colour = get_voxel_colour(groups[1].node);
-
-    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, biggest / EMISSION));
+    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, min(max(biggest / EMISSION, 0.0), 1.0)));
 }"
         }
     }
@@ -1061,17 +845,8 @@ return; }
 #define VBUFFER_SIZE 500
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-layout(set = 0, binding = 0, rgba8) uniform readonly image3D img;
-layout(set = 0, binding = 1, rgba8) uniform writeonly image2D img2;
-
-vec3 toSRGB(vec3 linear)
-{
-    bvec3 cutoff = lessThan(linear, vec3(0.0031308));
-    vec3 higher = vec3(1.055) * pow(linear, vec3(1.0) / vec3(2.4)) - vec3(0.055);
-    vec3 lower = vec3(12.92) * linear;
-
-    return mix(higher, lower, cutoff);
-}
+layout(set = 0, binding = 0, rgba16) uniform readonly image3D img;
+layout(set = 0, binding = 1, rgba16) uniform writeonly image2D img2;
 
 const float EMISSION = 15.0;
 
@@ -1085,12 +860,79 @@ void main() {
 
     final /= imageSize(img).z;
 
-    final = toSRGB(final);
+    float alpha = max(final.x, max(final.y, final.z));
 
-    final = vec3(min(1.0,max(final.x,0.0)),min(1.0,max(final.y,0.0)),min(1.0,max(final.z,0.0)));
+    final /= alpha;
 
-    //imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, 1.0));
-    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, 1.0));
+    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / EMISSION));
+}
+"
+        }
+    }
+
+    mod cs3 {
+        vulkano_shaders::shader! {
+            ty: "compute",
+            src: "
+#version 450
+#define FLT_MAX 3.402823466e+38
+#define FLT_MIN 1.175494351e-38
+#define DBL_MAX 1.7976931348623158e+308
+#define DBL_MIN 2.2250738585072014e-308
+#define VBUFFER_SIZE 500
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(set = 0, binding = 0, rgba16) uniform readonly image2D imgin;
+layout(set = 1, binding = 0, rgba16) uniform image2D imgout;
+
+layout(push_constant) uniform pushConstants {
+    uint rpp;
+    uint so_far_rpp;
+} pc;
+
+void main() {
+    vec4 final = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy)) * (float(pc.rpp) / float(pc.rpp + pc.so_far_rpp));
+
+    final += imageLoad(imgout, ivec2(gl_GlobalInvocationID.xy)) * (float(pc.so_far_rpp) / float(pc.rpp + pc.so_far_rpp));
+
+    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), final);
+    //imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(1.0));
+}
+"
+        }
+    }
+
+    mod cs4 {
+        vulkano_shaders::shader! {
+            ty: "compute",
+            src: "
+#version 450
+#define FLT_MAX 3.402823466e+38
+#define FLT_MIN 1.175494351e-38
+#define DBL_MAX 1.7976931348623158e+308
+#define DBL_MIN 2.2250738585072014e-308
+#define VBUFFER_SIZE 500
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(set = 0, binding = 0, rgba16) uniform readonly image2D imgin;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D imgout;
+
+
+vec3 toSRGB(vec3 linear)
+{
+    bvec3 cutoff = lessThan(linear, vec3(0.0031308));
+    vec3 higher = vec3(1.055) * pow(linear, vec3(1.0) / vec3(2.4)) - vec3(0.055);
+    vec3 lower = vec3(12.92) * linear;
+
+    return mix(higher, lower, cutoff);
+}
+
+const float EMISSION = 15.0;
+
+void main() {
+    vec4 final = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy));
+
+    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(toSRGB(final.xyz * final.w * EMISSION), 1.0));
 }
 "
         }
@@ -1107,6 +949,20 @@ void main() {
 
     let compute_pipeline2 = Arc::new(
         ComputePipeline::new(device.clone(), &shader2.main_entry_point(), &())
+            .expect("failed to create compute pipeline"),
+    );
+
+    let shader3 = cs3::Shader::load(device.clone()).expect("failed to create shader module");
+
+    let compute_pipeline3 = Arc::new(
+        ComputePipeline::new(device.clone(), &shader3.main_entry_point(), &())
+            .expect("failed to create compute pipeline"),
+    );
+
+    let shader4 = cs4::Shader::load(device.clone()).expect("failed to create shader module");
+
+    let compute_pipeline4 = Arc::new(
+        ComputePipeline::new(device.clone(), &shader4.main_entry_point(), &())
             .expect("failed to create compute pipeline"),
     );
 
@@ -1136,6 +992,46 @@ void main() {
         )
         .add_image(imagestep.clone())
         .unwrap()
+        .add_image(imagestep2.clone())
+        .unwrap()
+        .build()
+        .unwrap(),
+    );
+
+    use vulkano::descriptor::descriptor_set::FixedSizeDescriptorSetsPool;
+
+    let mut set3pool = FixedSizeDescriptorSetsPool::new(
+        compute_pipeline3
+            .layout()
+            .descriptor_set_layout(0)
+            .unwrap()
+            .clone(),
+    );
+
+    let set3 = Arc::new(
+        PersistentDescriptorSet::start(
+            compute_pipeline3
+                .layout()
+                .descriptor_set_layout(1)
+                .unwrap()
+                .clone(),
+        )
+        .add_image(imagecombine.clone())
+        .unwrap()
+        .build()
+        .unwrap(),
+    );
+
+    let set4 = Arc::new(
+        PersistentDescriptorSet::start(
+            compute_pipeline4
+                .layout()
+                .descriptor_set_layout(0)
+                .unwrap()
+                .clone(),
+        )
+        .add_image(imagecombine.clone())
+        .unwrap()
         .add_image(image.clone())
         .unwrap()
         .build()
@@ -1147,17 +1043,15 @@ void main() {
 
     let mut setg = Vec::new();
     for i in 0..images.len() {
-        setg.push(Arc::new(PersistentDescriptorSet::start(
-            pipeline
-                .layout()
-                .descriptor_set_layout(0)
-                .unwrap()
-                .clone(),
-        )
-                           .add_sampled_image(rayimages[i].clone(), _sampler.clone())
-                  .unwrap()
-                  .build()
-                  .unwrap()));
+        setg.push(Arc::new(
+            PersistentDescriptorSet::start(
+                pipeline.layout().descriptor_set_layout(0).unwrap().clone(),
+            )
+            .add_sampled_image(rayimages[i].clone(), _sampler.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+        ));
     }
 
     let right = rotation
@@ -1179,7 +1073,13 @@ void main() {
             z: 1.0,
         };
 
-    fn gen_push_const(campos : Vector3<f64>, right : Vector3<f64>, up : Vector3<f64>, forward : Vector3<f64>, framenum : u32) -> cs::ty::pushConstants{
+    fn gen_push_const(
+        campos: Vector3<f64>,
+        right: Vector3<f64>,
+        up: Vector3<f64>,
+        forward: Vector3<f64>,
+        framenum: u32,
+    ) -> cs::ty::pushConstants {
         let push_constants = cs::ty::pushConstants {
             campos: [campos.x as f32, campos.y as f32, campos.z as f32],
             right: [right.x as f32, right.y as f32, right.z as f32],
@@ -1192,54 +1092,89 @@ void main() {
         };
         return push_constants;
     }
-{
-    let buf = CpuAccessibleBuffer::from_iter(
-        device.clone(),
-        BufferUsage::all(),
-        false,
-        (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
-    )
-    .expect("failed to create buffer");
-
-    let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
-        .unwrap()
-        .dispatch(
-            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
-            compute_pipeline.clone(),
-            (set.clone()),
-            gen_push_const(campos, right, up, forward, 1),
+    {
+        let buf = CpuAccessibleBuffer::from_iter(
+            device.clone(),
+            BufferUsage::all(),
+            false,
+            (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
         )
-        .unwrap()
-        .dispatch(
-            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-            compute_pipeline2.clone(),
-            (set2.clone()),
-            (),
-        )
-        .unwrap()
-        .copy_image_to_buffer(image.clone(), buf.clone())
-        .unwrap()
-        .build()
-        .unwrap();
+        .expect("failed to create buffer");
 
-    let gpustart = std::time::Instant::now();
-
-    let finished = command_buffer.execute(queue.clone()).unwrap();
-    finished
-        .then_signal_fence_and_flush()
-        .unwrap()
-        .wait(None)
-        .unwrap();
-
-    let gpuend = std::time::Instant::now();
-
-    let buffer_content = buf.read().unwrap();
-    let image =
-        ImageBuffer::<Rgba<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer_content[..])
+        let tempset = set3pool
+            .next()
+            .add_image(imagegpuout.clone())
+            .unwrap()
+            .build()
             .unwrap();
-    image.save("image2.png").unwrap();
 
-    println!("Gpu took {} ms", (gpuend - gpustart).as_millis());}
+        let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+                compute_pipeline.clone(),
+                (set.clone()),
+                gen_push_const(campos, right, up, forward, 1),
+            )
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline2.clone(),
+                (set2.clone()),
+                (),
+            )
+            .unwrap()
+            .copy_image(
+                imagestep2.clone(),
+                [0, 0, 0],
+                0,
+                0,
+                imagegpuout.clone(),
+                [0, 0, 0],
+                0,
+                0,
+                [WIDTH as u32, HEIGHT as u32, 1],
+                1,
+            )
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline3.clone(),
+                (tempset, set3.clone()),
+                (RPP as u32, 0 as u32),
+            )
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline4.clone(),
+                (set4.clone()),
+                (),
+            )
+            .unwrap()
+            .copy_image_to_buffer(image.clone(), buf.clone())
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let gpustart = std::time::Instant::now();
+
+        let finished = command_buffer.execute(queue.clone()).unwrap();
+        finished
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+
+        let gpuend = std::time::Instant::now();
+
+        let buffer_content = buf.read().unwrap();
+        let image =
+            ImageBuffer::<Rgba<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer_content[..])
+                .unwrap();
+        image.save("image2.png").unwrap();
+
+        println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
+    }
 
     let mut recreate_swapchain = false;
 
@@ -1251,7 +1186,7 @@ void main() {
     // that, we store the submission of the previous frame here.
     let mut previous_frame_end = Some(Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>);
 
-    let mut framenum : u32 = 0;
+    let mut framenum: u32 = 0;
 
     while !window.should_close() {
         glfw.poll_events();
@@ -1311,29 +1246,74 @@ void main() {
         }
 
         // Specify the color to clear the framebuffer with i.e. blue
-        let clear_values = vec![[0.0, 0.0, 1.0, 1.0].into()];
+        let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
         campos += forward / 1000.0;
 
+        let tempset = set3pool
+            .next()
+            .add_image(imagegpuout.clone())
+            .unwrap()
+            .build()
+            .unwrap();
+
         let command_buffer =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
-                compute_pipeline.clone(),
-                (set.clone()),
-                gen_push_const(campos, right, up, forward, framenum),
-            )
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline2.clone(),
-                (set2.clone()),
-                (),
-            )
-            .unwrap()
-            .copy_image(image.clone(), [0; 3], 0, 0, rayimages[image_num].clone(), [0; 3], 0, 0, [WIDTH as u32,HEIGHT as u32,1], 1)
-            .unwrap()
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+                    compute_pipeline.clone(),
+                    (set.clone()),
+                    gen_push_const(campos, right, up, forward, framenum),
+                )
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline2.clone(),
+                    (set2.clone()),
+                    (),
+                )
+                .unwrap()
+                .copy_image(
+                    imagestep2.clone(),
+                    [0, 0, 0],
+                    0,
+                    0,
+                    imagegpuout.clone(),
+                    [0, 0, 0],
+                    0,
+                    0,
+                    [WIDTH as u32, HEIGHT as u32, 1],
+                    1,
+                )
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline3.clone(),
+                    (tempset, set3.clone()),
+                    (1 as u32, 0 as u32),
+                )
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline4.clone(),
+                    (set4.clone()),
+                    (),
+                )
+                .unwrap()
+                .copy_image(
+                    image.clone(),
+                    [0; 3],
+                    0,
+                    0,
+                    rayimages[image_num].clone(),
+                    [0; 3],
+                    0,
+                    0,
+                    [WIDTH as u32, HEIGHT as u32, 1],
+                    1,
+                )
+                .unwrap()
                 // Before we can draw, we have to *enter a render pass*. There are two methods to do
                 // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is
                 // not covered here.
