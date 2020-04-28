@@ -1,22 +1,26 @@
 use vulkano::buffer::CpuBufferPool;
 use vulkano::device::Device;
 use vulkano::device::Queue;
+use vulkano::format::Format;
 use vulkano::image::AttachmentImage;
+use vulkano::image::StorageImage;
 use vulkano::instance::Instance;
 use vulkano::sync::GpuFuture;
 
 use std::sync::Arc;
 
 pub trait SubRenderer {
-    fn start_render(image: usize); //Start render on gpus, cpu does nothing here
+    fn start_render(&self, image: usize); //Start render on gpus, cpu does nothing here
 
     fn finish_render(
+        &self,
         instance: Arc<Instance>,
         device: Arc<Device>,
         queue: Arc<Queue>,
-        pool: CpuBufferPool<u8>,
+        pool: CpuBufferPool<u16>,
+        cpy_image: Arc<StorageImage<vulkano::format::R16G16B16A16Unorm>>,
         image: usize,
-    ) -> (Box<dyn GpuFuture>, Arc<AttachmentImage>);
+    ) -> Box<dyn GpuFuture>;
 }
 
 use crate::*;
@@ -357,12 +361,33 @@ pub mod cpu {
 
             colour *= std::u16::MAX as f64;
 
-            [colour.x as u16, colour.y as u16, colour.z as u16, (alpha * std::u16::MAX as f64) as u16]
+            [
+                colour.x as u16,
+                colour.y as u16,
+                colour.z as u16,
+                (alpha * std::u16::MAX as f64) as u16,
+            ]
 
             //return linear_to_srgb(colour);
         }
 
-        pub fn DoRender(&self) {
+        pub fn DoRender(&self) {}
+    }
+
+    use vulkano::image::StorageImage;
+
+    impl SubRenderer for CpuRenderer {
+        fn start_render(&self, image: usize) {}
+
+        fn finish_render(
+            &self,
+            instance: Arc<Instance>,
+            device: Arc<Device>,
+            queue: Arc<Queue>,
+            pool: CpuBufferPool<u16>,
+            cpy_image: Arc<StorageImage<vulkano::format::R16G16B16A16Unorm>>,
+            image: usize,
+        ) -> Box<dyn GpuFuture> {
             let mut buffer: Vec<u16> = vec![0; (self.width * self.height * 4) as usize]; // Generate the image data;
 
             let startcpu = std::time::Instant::now();
@@ -427,18 +452,55 @@ pub mod cpu {
             .unwrap()
             .save("image.png")
             .unwrap();
+
+            use vulkano::format::Format;
+            use vulkano::image::ImageUsage;
+            use vulkano::buffer::BufferUsage;
+
+            let gbuffer = pool.chunk(buffer.clone().into_iter()).unwrap();
+
+            use vulkano::buffer::CpuAccessibleBuffer;
+
+            let mut _usage = BufferUsage::none();
+            _usage.transfer_destination = true;
+
+            let gbuffer2 = CpuAccessibleBuffer::from_iter(device.clone(), _usage, false, buffer.into_iter()).unwrap();
+
+
+            use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBuffer};
+
+            let future = AutoCommandBufferBuilder::new(device.clone(), queue.family())
+                .unwrap()
+                .copy_buffer_to_image(gbuffer.clone(), cpy_image.clone())
+                .unwrap()
+                .copy_image_to_buffer(cpy_image.clone(), gbuffer2.clone())
+                .unwrap()
+                .build()
+                .unwrap()
+                .execute(queue.clone())
+                .unwrap()
+                .then_signal_fence_and_flush()
+                .unwrap();
+
+            future.wait(None).unwrap(); ///////// NOOOTEEE BUG IS 100% not here
+
+
+            use image::ImageBuffer;
+            use image::Rgba;
+
+            queue.wait().unwrap();
+
+            {
+                let buffer_content = gbuffer2.read().unwrap();
+                let image =
+                    ImageBuffer::<Rgba<u16>, _>::from_raw(self.width as u32, self.height as u32, &buffer_content[..])
+                    .unwrap();
+                image.save("image3.png").unwrap();
+            }
+
+            std::thread::sleep_ms(10000);
+
+            Box::new(future)
         }
     }
-    /*
-        impl SubRenderer for CpuRenderer {
-
-            fn start_render(image : usize){
-
-            }
-
-            fn finish_render(instance : Arc<Instance>, device : Arc<Device>, queue : Arc<Queue>, pool : CpuBufferPool<u16>, image : usize) -> (Box<dyn GpuFuture>, Arc<AttachmentImage>){
-
-            }
-        }
-    */
 }
