@@ -6,7 +6,7 @@ use lib::render::*;
 const WIDTH: usize = 256;
 const HEIGHT: usize = 256;
 
-const RPP: usize = 500;
+const RPP: usize = 25;
 const RBC: usize = 3;
 
 use lib::*;
@@ -176,63 +176,13 @@ fn main() {
 
     let cubepos = new_vec(0.0, 0.0, 0.0);
 
-    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, 500, RBC, 1);
+    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, 2, RBC, 1);
     cpurend.scenes[0] = VoxelScene {
         tree: tree,
         root: 1,
         camera_position: campos,
         camera_rotation: rotation,
     };
-
-    /*
-    let buf = CpuAccessibleBuffer::from_iter(
-            device.clone(),
-            BufferUsage::all(),
-            false,
-            (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
-        )
-        .expect("failed to create buffer");
-
-        let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
-                compute_pipeline.clone(),
-                (set.clone()),
-                gen_push_const(campos, right, up, forward, 1),
-            )
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline2.clone(),
-                (set2.clone()),
-                (),
-            )
-            .unwrap()
-            .copy_image_to_buffer(image.clone(), buf.clone())
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let gpustart = std::time::Instant::now();
-
-        let finished = command_buffer.execute(queue.clone()).unwrap();
-        finished
-            .then_signal_fence_and_flush()
-            .unwrap()
-            .wait(None)
-            .unwrap();
-
-        let gpuend = std::time::Instant::now();
-
-        let buffer_content = buf.read().unwrap();
-        let image =
-            ImageBuffer::<Rgba<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer_content[..])
-                .unwrap();
-        image.save("image2.png").unwrap();
-
-        println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
-    */
 
     let image = StorageImage::new(
         device.clone(),
