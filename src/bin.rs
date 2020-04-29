@@ -6,7 +6,7 @@ use lib::render::*;
 const WIDTH: usize = 256;
 const HEIGHT: usize = 256;
 
-const RPP: usize = 25;
+const RPP: usize = 500;
 const RBC: usize = 3;
 
 use lib::*;
@@ -176,14 +176,14 @@ fn main() {
 
     let cubepos = new_vec(0.0, 0.0, 0.0);
 
-    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, 2, RBC, 1);
+    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, 500, RBC, 1);
     cpurend.scenes[0] = VoxelScene {
         tree: tree,
         root: 1,
         camera_position: campos,
         camera_rotation: rotation,
     };
-    cpurend.DoRender();
+
     /*
     let buf = CpuAccessibleBuffer::from_iter(
             device.clone(),
@@ -1097,9 +1097,9 @@ void main() {
             device.clone(),
             BufferUsage::all(),
             false,
-            (0..WIDTH * HEIGHT * 4).map(|_| 0u16),
+            (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
         )
-            .expect("failed to create buffer");
+        .expect("failed to create buffer");
 
         use vulkano::buffer::CpuBufferPool;
 
@@ -1114,9 +1114,16 @@ void main() {
             vulkano::format::R16G16B16A16Unorm,
             Some(queue.family()),
         )
-            .unwrap();
+        .unwrap();
 
-        let cputhing = cpurend.finish_render(instance.clone(), device.clone(), queue.clone(),cpubufferpool,cpuimage.clone(), 0);
+        let cputhing = cpurend.finish_render(
+            instance.clone(),
+            device.clone(),
+            queue.clone(),
+            cpubufferpool,
+            cpuimage.clone(),
+            0,
+        );
 
         let tempset = set3pool
             .next()
@@ -1125,57 +1132,48 @@ void main() {
             .build()
             .unwrap();
 
-        let command_buffer = AutoCommandBufferBuilder::new(device.clone(), queue.family())
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
-                compute_pipeline.clone(),
-                (set.clone()),
-                gen_push_const(campos, right, up, forward, 0u32),
-            )
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline2.clone(),
-                (set2.clone()),
-                (),
-            )
-            .unwrap()
-            .copy_image(
-                imagestep2.clone(),
-                [0, 0, 0],
-                0,
-                0,
-                imagegpuout.clone(),
-                [0, 0, 0],
-                0,
-                0,
-                [WIDTH as u32, HEIGHT as u32, 1],
-                1,
-            )
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline3.clone(),
-                (tempset, set3.clone()),
-                (1 as u32, 0 as u32),
-            )
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline4.clone(),
-                (set4.clone()),
-                (),
-            )
-            .unwrap()
-            .copy_image_to_buffer(imagecombine.clone(), buf.clone())
-            .unwrap()
-            .build()
-            .unwrap();
+        let command_buffer = unsafe {
+            AutoCommandBufferBuilder::new(device.clone(), queue.family())
+                .unwrap()
+                .execute_commands(cputhing)
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+                    compute_pipeline.clone(),
+                    (set.clone()),
+                    gen_push_const(campos, right, up, forward, 0u32),
+                )
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline2.clone(),
+                    (set2.clone()),
+                    (),
+                )
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline3.clone(),
+                    (tempset, set3.clone()),
+                    (1 as u32, 0 as u32),
+                )
+                .unwrap()
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline4.clone(),
+                    (set4.clone()),
+                    (),
+                )
+                .unwrap()
+                .copy_image_to_buffer(image.clone(), buf.clone())
+                .unwrap()
+                .build()
+                .unwrap()
+        };
 
         let gpustart = std::time::Instant::now();
 
-        let finished = cputhing.then_execute_same_queue(command_buffer).unwrap();
+        let finished = command_buffer.execute(queue.clone()).unwrap();
         finished
             .then_signal_fence_and_flush()
             .unwrap()
@@ -1186,7 +1184,7 @@ void main() {
 
         let buffer_content = buf.read().unwrap();
         let image =
-            ImageBuffer::<Rgba<u16>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer_content[..])
+            ImageBuffer::<Rgba<u8>, _>::from_raw(WIDTH as u32, HEIGHT as u32, &buffer_content[..])
                 .unwrap();
         image.save("image2.png").unwrap();
 

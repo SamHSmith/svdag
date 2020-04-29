@@ -1,4 +1,5 @@
 use vulkano::buffer::CpuBufferPool;
+use vulkano::command_buffer::AutoCommandBuffer;
 use vulkano::device::Device;
 use vulkano::device::Queue;
 use vulkano::format::Format;
@@ -20,7 +21,7 @@ pub trait SubRenderer {
         pool: CpuBufferPool<u16>,
         cpy_image: Arc<StorageImage<vulkano::format::R16G16B16A16Unorm>>,
         image: usize,
-    ) -> Box<dyn GpuFuture>;
+    ) -> AutoCommandBuffer;
 }
 
 use crate::*;
@@ -356,16 +357,14 @@ pub mod cpu {
 
             colour /= count as f64;
 
-            let alpha = colour.x.max(colour.y.max(colour.z)) / EMISSION;
+            let alpha = colour.x.max(colour.y.max(colour.z));
             colour /= alpha;
 
-            colour *= std::u16::MAX as f64;
-
             [
-                colour.x as u16,
-                colour.y as u16,
-                colour.z as u16,
-                (alpha * std::u16::MAX as f64) as u16,
+                (colour.x * std::u16::MAX as f64) as u16,
+                (colour.y * std::u16::MAX as f64) as u16,
+                (colour.z * std::u16::MAX as f64) as u16,
+                ((alpha / EMISSION) * std::u16::MAX as f64) as u16,
             ]
 
             //return linear_to_srgb(colour);
@@ -374,6 +373,7 @@ pub mod cpu {
         pub fn DoRender(&self) {}
     }
 
+    use vulkano::command_buffer::AutoCommandBuffer;
     use vulkano::image::StorageImage;
 
     impl SubRenderer for CpuRenderer {
@@ -387,7 +387,7 @@ pub mod cpu {
             pool: CpuBufferPool<u16>,
             cpy_image: Arc<StorageImage<vulkano::format::R16G16B16A16Unorm>>,
             image: usize,
-        ) -> Box<dyn GpuFuture> {
+        ) -> AutoCommandBuffer {
             let mut buffer: Vec<u16> = vec![0; (self.width * self.height * 4) as usize]; // Generate the image data;
 
             let startcpu = std::time::Instant::now();
@@ -453,54 +453,27 @@ pub mod cpu {
             .save("image.png")
             .unwrap();
 
+            use vulkano::buffer::BufferUsage;
             use vulkano::format::Format;
             use vulkano::image::ImageUsage;
-            use vulkano::buffer::BufferUsage;
 
             let gbuffer = pool.chunk(buffer.clone().into_iter()).unwrap();
 
             use vulkano::buffer::CpuAccessibleBuffer;
 
-            let mut _usage = BufferUsage::none();
-            _usage.transfer_destination = true;
-
-            let gbuffer2 = CpuAccessibleBuffer::from_iter(device.clone(), _usage, false, buffer.into_iter()).unwrap();
-
-
             use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBuffer};
 
-            let future = AutoCommandBufferBuilder::new(device.clone(), queue.family())
-                .unwrap()
-                .copy_buffer_to_image(gbuffer.clone(), cpy_image.clone())
-                .unwrap()
-                .copy_image_to_buffer(cpy_image.clone(), gbuffer2.clone())
-                .unwrap()
-                .build()
-                .unwrap()
-                .execute(queue.clone())
-                .unwrap()
-                .then_signal_fence_and_flush()
-                .unwrap();
+            let commandbuff = AutoCommandBufferBuilder::secondary_compute_one_time_submit(
+                device.clone(),
+                queue.family(),
+            )
+            .unwrap()
+            .copy_buffer_to_image(gbuffer.clone(), cpy_image.clone())
+            .unwrap()
+            .build()
+            .unwrap();
 
-            future.wait(None).unwrap(); ///////// NOOOTEEE BUG IS 100% not here
-
-
-            use image::ImageBuffer;
-            use image::Rgba;
-
-            queue.wait().unwrap();
-
-            {
-                let buffer_content = gbuffer2.read().unwrap();
-                let image =
-                    ImageBuffer::<Rgba<u16>, _>::from_raw(self.width as u32, self.height as u32, &buffer_content[..])
-                    .unwrap();
-                image.save("image3.png").unwrap();
-            }
-
-            std::thread::sleep_ms(10000);
-
-            Box::new(future)
+            commandbuff
         }
     }
 }
