@@ -1064,7 +1064,18 @@ void main() {
             vulkano::format::R16G16B16A16Unorm,
             Some(queue.family()),
         )
-        .unwrap();
+            .unwrap();
+
+        let cpuimageout = StorageImage::new(
+            device.clone(),
+            Dimensions::Dim2d {
+                width: WIDTH as u32,
+                height: HEIGHT as u32,
+            },
+            vulkano::format::R16G16B16A16Unorm,
+            Some(queue.family()),
+        )
+            .unwrap();
 
         let cputhing = cpurend.finish_render(
             instance.clone(),
@@ -1077,29 +1088,47 @@ void main() {
 
         let tempset = set3pool
             .next()
-            .add_image(cpuimage.clone())
+            .add_image(imagestep2.clone())
             .unwrap()
             .build()
             .unwrap();
+
+        let gpubuffer = AutoCommandBufferBuilder::secondary_compute_one_time_submit(device.clone(), queue.family()).unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+                compute_pipeline.clone(),
+                (set.clone()),
+                gen_push_const(campos, right, up, forward, 0u32),
+            )
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline2.clone(),
+                (set2.clone()),
+                (),
+            )
+            .unwrap()
+            .copy_image(
+                imagestep2.clone(), //I think this forces imagestep2 to have been used by the time this buffer finishes
+                [0, 0, 0],
+                0,
+                0,
+                imagegpuout.clone(),
+                [0, 0, 0],
+                0,
+                0,
+                [WIDTH as u32, HEIGHT as u32, 1],
+                1,
+            )
+            .unwrap()
+            .build().unwrap();
 
         let command_buffer = unsafe {
             AutoCommandBufferBuilder::new(device.clone(), queue.family())
                 .unwrap()
                 .execute_commands(cputhing)
                 .unwrap()
-                .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
-                    compute_pipeline.clone(),
-                    (set.clone()),
-                    gen_push_const(campos, right, up, forward, 0u32),
-                )
-                .unwrap()
-                .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                    compute_pipeline2.clone(),
-                    (set2.clone()),
-                    (),
-                )
+                .execute_commands(gpubuffer)
                 .unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
@@ -1139,6 +1168,8 @@ void main() {
         image.save("image2.png").unwrap();
 
         println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
+
+        panic!()
     }
 
     let mut recreate_swapchain = false;
@@ -1217,7 +1248,7 @@ void main() {
 
         let tempset = set3pool
             .next()
-            .add_image(imagegpuout.clone())
+            .add_image(imagestep2.clone())
             .unwrap()
             .build()
             .unwrap();
