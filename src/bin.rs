@@ -184,16 +184,9 @@ fn main() {
         camera_rotation: rotation,
     };
 
-    let image = StorageImage::new(
-        device.clone(),
-        Dimensions::Dim2d {
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
-        },
-        Format::R8G8B8A8Unorm,
-        Some(queue.family()),
-    )
-    .unwrap();
+    use vulkano::buffer::CpuBufferPool;
+
+    let cpubufferpool = CpuBufferPool::upload(device.clone());
 
     let imagestep = StorageImage::new(
         device.clone(),
@@ -218,18 +211,7 @@ fn main() {
     )
     .unwrap();
 
-    let imagegpuout = StorageImage::new(
-        device.clone(),
-        Dimensions::Dim2d {
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
-        },
-        Format::R16G16B16A16Unorm,
-        Some(queue.family()),
-    )
-    .unwrap();
-
-    let imagecombine = StorageImage::new(
+    let imagegpusyncdump = StorageImage::new(
         device.clone(),
         Dimensions::Dim2d {
             width: WIDTH as u32,
@@ -315,6 +297,54 @@ fn main() {
                 [WIDTH as u32, HEIGHT as u32],
                 format::R8G8B8A8Unorm,
                 _usage,
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let cpuimages: Vec<Arc<StorageImage<format::R16G16B16A16Unorm>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            StorageImage::new(
+                device.clone(),
+                Dimensions::Dim2d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                },
+                vulkano::format::R16G16B16A16Unorm,
+                Some(queue.family()),
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let imagecombines: Vec<Arc<StorageImage<Format>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            StorageImage::new(
+                device.clone(),
+                Dimensions::Dim2d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                },
+                Format::R16G16B16A16Unorm,
+                Some(queue.family()),
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let outimages: Vec<Arc<StorageImage<Format>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            StorageImage::new(
+                device.clone(),
+                Dimensions::Dim2d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                },
+                Format::R8G8B8A8Unorm,
+                Some(queue.family()),
             )
             .unwrap()
         })
@@ -916,37 +946,45 @@ void main() {
             .expect("failed to create compute pipeline"),
     );
 
-    let set = Arc::new(
-        PersistentDescriptorSet::start(
-            compute_pipeline
-                .layout()
-                .descriptor_set_layout(0)
-                .unwrap()
-                .clone(),
-        )
-        .add_image(imagestep.clone())
-        .unwrap()
-        .add_buffer(vbuffer.clone())
-        .unwrap()
-        .build()
-        .unwrap(),
-    );
+    use vulkano::descriptor::descriptor_set::DescriptorSet;
 
-    let set2 = Arc::new(
-        PersistentDescriptorSet::start(
-            compute_pipeline2
-                .layout()
-                .descriptor_set_layout(0)
-                .unwrap()
-                .clone(),
-        )
-        .add_image(imagestep.clone())
-        .unwrap()
-        .add_image(imagestep2.clone())
-        .unwrap()
-        .build()
-        .unwrap(),
-    );
+    let mut sets = Vec::new();
+    for i in 0..images.len() {
+        sets.push(Arc::new(
+            PersistentDescriptorSet::start(
+                compute_pipeline
+                    .layout()
+                    .descriptor_set_layout(0)
+                    .unwrap()
+                    .clone(),
+            )
+            .add_image(imagestep.clone())
+            .unwrap()
+            .add_buffer(vbuffer.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+        ));
+    }
+
+    let mut set2 = Vec::new();
+    for i in 0..images.len() {
+        set2.push(Arc::new(
+            PersistentDescriptorSet::start(
+                compute_pipeline2
+                    .layout()
+                    .descriptor_set_layout(0)
+                    .unwrap()
+                    .clone(),
+            )
+            .add_image(imagestep.clone())
+            .unwrap()
+            .add_image(imagestep2.clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+        ));
+    }
 
     use vulkano::descriptor::descriptor_set::FixedSizeDescriptorSetsPool;
 
@@ -958,36 +996,41 @@ void main() {
             .clone(),
     );
 
-    let set3 = Arc::new(
-        PersistentDescriptorSet::start(
-            compute_pipeline3
-                .layout()
-                .descriptor_set_layout(1)
-                .unwrap()
-                .clone(),
-        )
-        .add_image(imagecombine.clone())
-        .unwrap()
-        .build()
-        .unwrap(),
-    );
+    let mut set3 = Vec::new();
+    for i in 0..images.len() {
+        set3.push(Arc::new(
+            PersistentDescriptorSet::start(
+                compute_pipeline3
+                    .layout()
+                    .descriptor_set_layout(1)
+                    .unwrap()
+                    .clone(),
+            )
+            .add_image(imagecombines[i].clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+        ));
+    }
 
-    let set4 = Arc::new(
-        PersistentDescriptorSet::start(
-            compute_pipeline4
-                .layout()
-                .descriptor_set_layout(0)
-                .unwrap()
-                .clone(),
-        )
-        .add_image(imagecombine.clone())
-        .unwrap()
-        .add_image(image.clone())
-        .unwrap()
-        .build()
-        .unwrap(),
-    );
-
+    let mut set4 = Vec::new();
+    for i in 0..images.len() {
+        set4.push(Arc::new(
+            PersistentDescriptorSet::start(
+                compute_pipeline4
+                    .layout()
+                    .descriptor_set_layout(0)
+                    .unwrap()
+                    .clone(),
+            )
+            .add_image(imagecombines[i].clone())
+            .unwrap()
+            .add_image(outimages[i].clone())
+            .unwrap()
+            .build()
+            .unwrap(),
+        ));
+    }
     use vulkano::sampler::Sampler;
     let _sampler = Sampler::simple_repeat_linear_no_mipmap(device.clone());
 
@@ -1051,100 +1094,79 @@ void main() {
         )
         .expect("failed to create buffer");
 
-        use vulkano::buffer::CpuBufferPool;
-
-        let cpubufferpool = CpuBufferPool::upload(device.clone());
-
-        let cpuimage = StorageImage::new(
-            device.clone(),
-            Dimensions::Dim2d {
-                width: WIDTH as u32,
-                height: HEIGHT as u32,
-            },
-            vulkano::format::R16G16B16A16Unorm,
-            Some(queue.family()),
-        )
-            .unwrap();
-
-        let cpuimageout = StorageImage::new(
-            device.clone(),
-            Dimensions::Dim2d {
-                width: WIDTH as u32,
-                height: HEIGHT as u32,
-            },
-            vulkano::format::R16G16B16A16Unorm,
-            Some(queue.family()),
-        )
-            .unwrap();
-
-        let cputhing = cpurend.finish_render(
+        let cpubuffer = cpurend.finish_render(
             instance.clone(),
             device.clone(),
             queue.clone(),
-            cpubufferpool,
-            cpuimage.clone(),
+            cpubufferpool.clone(),
+            cpuimages[0].clone(),
             0,
         );
 
         let tempset = set3pool
             .next()
-            .add_image(imagestep2.clone())
+            .add_image(cpuimages[0].clone())
             .unwrap()
             .build()
             .unwrap();
 
-        let gpubuffer = AutoCommandBufferBuilder::secondary_compute_one_time_submit(device.clone(), queue.family()).unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
-                compute_pipeline.clone(),
-                (set.clone()),
-                gen_push_const(campos, right, up, forward, 0u32),
-            )
-            .unwrap()
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline2.clone(),
-                (set2.clone()),
-                (),
-            )
-            .unwrap()
-            .copy_image(
-                imagestep2.clone(), //I think this forces imagestep2 to have been used by the time this buffer finishes
-                [0, 0, 0],
-                0,
-                0,
-                imagegpuout.clone(),
-                [0, 0, 0],
-                0,
-                0,
-                [WIDTH as u32, HEIGHT as u32, 1],
-                1,
-            )
-            .unwrap()
-            .build().unwrap();
+        let gpubuffer = AutoCommandBufferBuilder::secondary_compute_one_time_submit(
+            device.clone(),
+            queue.family(),
+        )
+        .unwrap()
+        .dispatch(
+            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+            compute_pipeline.clone(),
+            (sets[0].clone()),
+            gen_push_const(campos, right, up, forward, 0u32),
+        )
+        .unwrap()
+        .dispatch(
+            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+            compute_pipeline2.clone(),
+            (set2[0].clone()),
+            (),
+        )
+        .unwrap()
+        .copy_image(
+            imagestep2.clone(), //I think this forces imagestep2 to have been used by the time this buffer finishes
+            [0, 0, 0],
+            0,
+            0,
+            imagegpusyncdump.clone(),
+            [0, 0, 0],
+            0,
+            0,
+            [WIDTH as u32, HEIGHT as u32, 1],
+            1,
+        )
+        .unwrap()
+        .build()
+        .unwrap();
 
         let command_buffer = unsafe {
             AutoCommandBufferBuilder::new(device.clone(), queue.family())
                 .unwrap()
-                .execute_commands(cputhing)
+                .execute_commands(cpubuffer)
                 .unwrap()
                 .execute_commands(gpubuffer)
                 .unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                     compute_pipeline3.clone(),
-                    (tempset, set3.clone()),
+                    (tempset, set3[0].clone()),
                     (1 as u32, 0 as u32),
                 )
                 .unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                     compute_pipeline4.clone(),
-                    (set4.clone()),
+                    (set4[0].clone()),
                     (),
                 )
                 .unwrap()
-                .copy_image_to_buffer(image.clone(), buf.clone())
+                .copy_image_to_buffer(outimages[0].clone(), buf.clone())
                 .unwrap()
                 .build()
                 .unwrap()
@@ -1167,9 +1189,7 @@ void main() {
                 .unwrap();
         image.save("image2.png").unwrap();
 
-        println!("Gpu took {} ms", (gpuend - gpustart).as_millis());
-
-        panic!()
+        println!("Cpu took {} ms", (gpuend - gpustart).as_millis());
     }
 
     let mut recreate_swapchain = false;
@@ -1182,7 +1202,11 @@ void main() {
     // that, we store the submission of the previous frame here.
     let mut previous_frame_end = Some(Box::new(sync::now(device.clone())) as Box<dyn GpuFuture>);
 
+    use std::time::Instant;
+
     let mut framenum: u32 = 0;
+    let mut framecounter: u32 = 0;
+    let mut lastframetimeprintout = Instant::now();
 
     while !window.should_close() {
         glfw.poll_events();
@@ -1246,36 +1270,68 @@ void main() {
 
         campos += forward / 1000.0;
 
+        let cpubuffer = cpurend.finish_render(
+            instance.clone(),
+            device.clone(),
+            queue.clone(),
+            cpubufferpool.clone(),
+            cpuimages[image_num].clone(),
+            0,
+        );
+
+        let gpubuffer = AutoCommandBufferBuilder::secondary_compute_one_time_submit(
+            device.clone(),
+            queue.family(),
+        )
+        .unwrap()
+        .dispatch(
+            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+            compute_pipeline.clone(),
+            (sets[image_num].clone()),
+            gen_push_const(campos, right, up, forward, framenum),
+        )
+        .unwrap()
+        .dispatch(
+            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+            compute_pipeline2.clone(),
+            (set2[image_num].clone()),
+            (),
+        )
+        .unwrap()
+        .copy_image(
+            imagestep2.clone(), //I think this forces imagestep2 to have been used by the time this buffer finishes
+            [0, 0, 0],
+            0,
+            0,
+            imagegpusyncdump.clone(),
+            [0, 0, 0],
+            0,
+            0,
+            [WIDTH as u32, HEIGHT as u32, 1],
+            1,
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+
         let tempset = set3pool
             .next()
-            .add_image(imagestep2.clone())
+            .add_image(cpuimages[image_num].clone())
             .unwrap()
             .build()
             .unwrap();
 
-        let command_buffer =
+        let command_buffer = unsafe {
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
                 .unwrap()
-                .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
-                    compute_pipeline.clone(),
-                    (set.clone()),
-                    gen_push_const(campos, right, up, forward, framenum),
-                )
-                .unwrap()
-                .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                    compute_pipeline2.clone(),
-                    (set2.clone()),
-                    (),
-                )
+                .execute_commands(cpubuffer)
                 .unwrap()
                 .copy_image(
-                    imagestep2.clone(),
+                    cpuimages[image_num].clone(), //I think this forces cpuimage to have been used by the time this buffer finishes
                     [0, 0, 0],
                     0,
                     0,
-                    imagegpuout.clone(),
+                    imagegpusyncdump.clone(),
                     [0, 0, 0],
                     0,
                     0,
@@ -1283,22 +1339,24 @@ void main() {
                     1,
                 )
                 .unwrap()
+                //.execute_commands(gpubuffer) //TODO make multiple cpuimages to fix glitches
+                //.unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                     compute_pipeline3.clone(),
-                    (tempset, set3.clone()),
+                    (tempset, set3[image_num].clone()),
                     (1 as u32, 0 as u32),
                 )
                 .unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                     compute_pipeline4.clone(),
-                    (set4.clone()),
+                    (set4[image_num].clone()),
                     (),
                 )
                 .unwrap()
                 .copy_image(
-                    image.clone(),
+                    outimages[image_num].clone(),
                     [0; 3],
                     0,
                     0,
@@ -1338,7 +1396,8 @@ void main() {
                 .unwrap()
                 // Finish building the command buffer by calling `build`.
                 .build()
-                .unwrap();
+                .unwrap()
+        };
 
         let future = previous_frame_end
             .take()
@@ -1367,6 +1426,15 @@ void main() {
                 println!("Failed to flush future: {:?}", e);
                 previous_frame_end = Some(Box::new(sync::now(device.clone())) as Box<_>);
             }
+        }
+        framecounter += 1;
+        if (Instant::now() - lastframetimeprintout).as_secs() > 10 {
+            println!(
+                "Avg frame time: {}",
+                (Instant::now() - lastframetimeprintout).as_millis() as f64 / framecounter as f64
+            );
+            framecounter = 0;
+            lastframetimeprintout = Instant::now();
         }
     }
 }

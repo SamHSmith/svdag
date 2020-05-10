@@ -395,8 +395,6 @@ pub mod cpu {
             use rayon::prelude::*;
             use std::sync::Mutex;
 
-            let columnsdone = Mutex::new(0 as usize);
-
             let maxindex: usize = self.width * self.height;
             let chunksize: usize = 1000;
 
@@ -431,12 +429,6 @@ pub mod cpu {
                         *(bufferptr.offset((index + 3) as isize) as *mut u16) = colour[3];
                     }
                 }
-                let mut percent = columnsdone.lock().unwrap();
-                *percent += 1;
-                println!(
-                    "Cpu Render is {} % done",
-                    ((*percent * chunksize as usize) as f64 * 100.0) / maxindex as f64
-                );
             });
 
             let cpuend = std::time::Instant::now();
