@@ -6,7 +6,7 @@ use lib::render::*;
 const WIDTH: usize = 256;
 const HEIGHT: usize = 256;
 
-const RPP: usize = 25;
+const RPP: usize = 200;
 const RBC: usize = 3;
 
 use lib::*;
@@ -148,16 +148,27 @@ fn main() {
     node2.get_child(tree, 3).flags = 1;
     node2.get_child(tree, 3).colour = [130, 100, 2];
     node2.get_child(tree, 3).roughness = 35;
+    node2.put_child(0, tree.allocate_node());
+    node2.get_child(tree, 0).put_child(6, tree.allocate_node());
+    node2.get_child(tree, 0).get_child(tree, 6).flags = 1;
+    node2.get_child(tree, 0).get_child(tree, 6).colour = [198, 198, 200];
+    node2.get_child(tree, 0).get_child(tree, 6).metalness = 255;
+    node2.get_child(tree, 0).get_child(tree, 6).roughness = 150;
     node2.put_child(2, tree.allocate_node());
     node2.get_child(tree, 2).flags = 1;
     node2.get_child(tree, 2).colour = [255, 219, 145];
-    node2.get_child(tree, 2).roughness = 20;
+    node2.get_child(tree, 2).roughness = 10;
     node2.get_child(tree, 2).metalness = 255;
+    node2.put_child(6, tree.allocate_node());
+    node2.get_child(tree, 6).flags = 1;
+    node2.get_child(tree, 6).colour = [50, 50, 50];
+    node2.get_child(tree, 6).roughness = 249;
     node2.put_child(5, tree.allocate_node());
-    node2.get_child(tree, 5).flags = 1;
-    node2.get_child(tree, 5).colour = [100, 100, 100];
-    node2.get_child(tree, 5).emission = 255;
-    node2.get_child(tree, 5).roughness = 255;
+    node2.get_child(tree, 5).put_child(6, tree.allocate_node());
+    node2.get_child(tree, 5).get_child(tree, 6).flags = 1;
+    node2.get_child(tree, 5).get_child(tree, 6).colour = [255, 147, 41];
+    node2.get_child(tree, 5).get_child(tree, 6).emission = 255;
+    node2.get_child(tree, 5).get_child(tree, 6).roughness = 255;
     node2.put_child(7, tree.allocate_node());
     node2.get_child(tree, 7).flags = 1;
     node2.get_child(tree, 7).colour = [20, 50, 180];
@@ -166,8 +177,8 @@ fn main() {
     //node.flags =1;
     node.colour = [255, 183, 235];
 
-    let mut campos = new_vec(-0.2, -0.6, -0.5);
-    let mut camrot = new_vec(-80.0, 0.0, 0.0);
+    let mut campos = new_vec(-0.2, -0.4, -0.7);
+    let mut camrot = new_vec(-10.0, 0.0, 0.0);
     let rotation = Quaternion::from(Euler {
         x: Deg(camrot.x),
         y: Deg(camrot.y),
@@ -176,7 +187,7 @@ fn main() {
 
     let cubepos = new_vec(0.0, 0.0, 0.0);
 
-    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, 2, RBC, 1);
+    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, RPP/10, RBC, 1);
     cpurend.scenes[0] = VoxelScene {
         tree: tree,
         root: 1,
@@ -187,40 +198,6 @@ fn main() {
     use vulkano::buffer::CpuBufferPool;
 
     let cpubufferpool = CpuBufferPool::upload(device.clone());
-
-    let imagestep = StorageImage::new(
-        device.clone(),
-        Dimensions::Dim3d {
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
-            depth: RPP as u32,
-        },
-        Format::R16G16B16A16Unorm,
-        Some(queue.family()),
-    )
-        .unwrap();
-
-    let imagestep2 = StorageImage::new(
-        device.clone(),
-        Dimensions::Dim2d {
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
-        },
-        Format::R16G16B16A16Unorm,
-        Some(queue.family()),
-    )
-        .unwrap();
-
-    let imagegpusyncdump = StorageImage::new(
-        device.clone(),
-        Dimensions::Dim2d {
-            width: WIDTH as u32,
-            height: HEIGHT as u32,
-        },
-        Format::R16G16B16A16Unorm,
-        Some(queue.family()),
-    )
-    .unwrap();
 
     let vbuffer = unsafe {
         let mut bufusage = BufferUsage::none();
@@ -297,6 +274,39 @@ fn main() {
                 [WIDTH as u32, HEIGHT as u32],
                 format::R8G8B8A8Unorm,
                 _usage,
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let imagestep: Vec<Arc<StorageImage<format::R16G16B16A16Unorm>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            StorageImage::new(
+                device.clone(),
+                Dimensions::Dim3d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                    depth: RPP as u32,
+                },
+                vulkano::format::R16G16B16A16Unorm,
+                Some(queue.family()),
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let imagestep2: Vec<Arc<StorageImage<format::R16G16B16A16Unorm>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            StorageImage::new(
+                device.clone(),
+                Dimensions::Dim2d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                },
+                vulkano::format::R16G16B16A16Unorm,
+                Some(queue.family()),
             )
             .unwrap()
         })
@@ -958,7 +968,7 @@ void main() {
                     .unwrap()
                     .clone(),
             )
-            .add_image(imagestep.clone())
+            .add_image(imagestep[i].clone())
             .unwrap()
             .add_buffer(vbuffer.clone())
             .unwrap()
@@ -977,9 +987,9 @@ void main() {
                     .unwrap()
                     .clone(),
             )
-            .add_image(imagestep.clone())
+            .add_image(imagestep[i].clone())
             .unwrap()
-            .add_image(imagestep2.clone())
+            .add_image(imagestep2[i].clone())
             .unwrap()
             .build()
             .unwrap(),
@@ -1031,8 +1041,21 @@ void main() {
             .unwrap(),
         ));
     }
-    use vulkano::sampler::Sampler;
-    let _sampler = Sampler::simple_repeat_linear_no_mipmap(device.clone());
+    use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
+    let _sampler = Sampler::new(
+        device.clone(),
+        Filter::Nearest,
+        Filter::Nearest,
+        MipmapMode::Nearest,
+        SamplerAddressMode::ClampToEdge,
+        SamplerAddressMode::ClampToEdge,
+        SamplerAddressMode::ClampToEdge,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+    )
+    .unwrap();
 
     let mut setg = Vec::new();
     for i in 0..images.len() {
@@ -1127,19 +1150,6 @@ void main() {
             compute_pipeline2.clone(),
             (set2[0].clone()),
             (),
-        )
-        .unwrap()
-        .copy_image(
-            imagestep2.clone(), //I think this forces imagestep2 to have been used by the time this buffer finishes
-            [0, 0, 0],
-            0,
-            0,
-            imagegpusyncdump.clone(),
-            [0, 0, 0],
-            0,
-            0,
-            [WIDTH as u32, HEIGHT as u32, 1],
-            1,
         )
         .unwrap()
         .build()
@@ -1270,6 +1280,13 @@ void main() {
 
         campos += forward / 1000.0;
 
+        cpurend.scenes[0] = VoxelScene {
+            tree: tree,
+            root: 1,
+            camera_position: campos,
+            camera_rotation: rotation,
+        };
+
         let cpubuffer = cpurend.finish_render(
             instance.clone(),
             device.clone(),
@@ -1298,95 +1315,111 @@ void main() {
             (),
         )
         .unwrap()
-        .copy_image(
-            imagestep2.clone(), //I think this forces imagestep2 to have been used by the time this buffer finishes
-            [0, 0, 0],
-            0,
-            0,
-            imagegpusyncdump.clone(),
-            [0, 0, 0],
-            0,
-            0,
-            [WIDTH as u32, HEIGHT as u32, 1],
-            1,
-        )
-        .unwrap()
         .build()
         .unwrap();
+        let mut tempsets = Vec::new();
+        tempsets.push(
+            set3pool
+                .next()
+                .add_image(cpuimages[image_num].clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+        );
+        tempsets.push(
+            set3pool
+                .next()
+                .add_image(imagestep2[image_num].clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+        );
 
-        let tempset = set3pool
-            .next()
-            .add_image(cpuimages[image_num].clone())
-            .unwrap()
-            .build()
-            .unwrap();
+        let mut rppsets = Vec::new();
+        rppsets.push(cpurend.rpp);
+        rppsets.push(RPP);
+        let mut sofarRPP = 0;
 
-        let command_buffer = unsafe {
+        let mut command_buffer_build = unsafe {
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
                 .unwrap()
-                .clear_color_image(cpuimages[image_num].clone(), vulkano::format::ClearValue::Float([0.0; 4]))
+                .clear_color_image(
+                    cpuimages[image_num].clone(),
+                    vulkano::format::ClearValue::Float([0.0; 4]),
+                )
+                .unwrap()
+                .clear_color_image(
+                    imagestep2[image_num].clone(),
+                    vulkano::format::ClearValue::Float([0.0; 4]),
+                )
                 .unwrap()
                 .execute_commands(cpubuffer)
                 .unwrap()
-                //.execute_commands(gpubuffer) //TODO make multiple cpuimages to fix glitches
-                //.unwrap()
-                .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                    compute_pipeline3.clone(),
-                    (tempset, set3[image_num].clone()),
-                    (1 as u32, 0 as u32),
-                )
-                .unwrap()
-                .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                    compute_pipeline4.clone(),
-                    (set4[image_num].clone()),
-                    (),
-                )
-                .unwrap()
-                .copy_image(
-                    outimages[image_num].clone(),
-                    [0; 3],
-                    0,
-                    0,
-                    rayimages[image_num].clone(),
-                    [0; 3],
-                    0,
-                    0,
-                    [WIDTH as u32, HEIGHT as u32, 1],
-                    1,
-                )
-                .unwrap()
-                // Before we can draw, we have to *enter a render pass*. There are two methods to do
-                // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is
-                // not covered here.
-                //
-                // The third parameter builds the list of values to clear the attachments with. The API
-                // is similar to the list of attachments when building the framebuffers, except that
-                // only the attachments that use `load: Clear` appear in the list.
-                .begin_render_pass(framebuffers[image_num].clone(), false, clear_values)
-                .unwrap()
-                // We are now inside the first subpass of the render pass. We add a draw command.
-                //
-                // The last two parameters contain the list of resources to pass to the shaders.
-                // Since we used an `EmptyPipeline` object, the objects have to be `()`.
-                .draw(
-                    pipeline.clone(),
-                    &dynamic_state,
-                    vertex_buffer.clone(),
-                    (setg[image_num].clone()),
-                    (),
-                )
-                .unwrap()
-                // We leave the render pass by calling `draw_end`. Note that if we had multiple
-                // subpasses we could have called `next_inline` (or `next_secondary`) to jump to the
-                // next subpass.
-                .end_render_pass()
-                .unwrap()
-                // Finish building the command buffer by calling `build`.
-                .build()
+                .execute_commands(gpubuffer)
                 .unwrap()
         };
+        for i in 0..2 {
+            let rpp = rppsets.pop().unwrap();
+        command_buffer_build = command_buffer_build
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline3.clone(),
+                (tempsets.pop().unwrap(), set3[image_num].clone()),
+                (rpp as u32, sofarRPP as u32),
+            )
+                .unwrap();
+            sofarRPP += rpp;
+}
+        let command_buffer = command_buffer_build
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline4.clone(),
+                (set4[image_num].clone()),
+                (),
+            )
+            .unwrap()
+            .copy_image(
+                outimages[image_num].clone(),
+                [0; 3],
+                0,
+                0,
+                rayimages[image_num].clone(),
+                [0; 3],
+                0,
+                0,
+                [WIDTH as u32, HEIGHT as u32, 1],
+                1,
+            )
+            .unwrap()
+            // Before we can draw, we have to *enter a render pass*. There are two methods to do
+            // this: `draw_inline` and `draw_secondary`. The latter is a bit more advanced and is
+            // not covered here.
+            //
+            // The third parameter builds the list of values to clear the attachments with. The API
+            // is similar to the list of attachments when building the framebuffers, except that
+            // only the attachments that use `load: Clear` appear in the list.
+            .begin_render_pass(framebuffers[image_num].clone(), false, clear_values)
+            .unwrap()
+            // We are now inside the first subpass of the render pass. We add a draw command.
+            //
+            // The last two parameters contain the list of resources to pass to the shaders.
+            // Since we used an `EmptyPipeline` object, the objects have to be `()`.
+            .draw(
+                pipeline.clone(),
+                &dynamic_state,
+                vertex_buffer.clone(),
+                (setg[image_num].clone()),
+                (),
+            )
+            .unwrap()
+            // We leave the render pass by calling `draw_end`. Note that if we had multiple
+            // subpasses we could have called `next_inline` (or `next_secondary`) to jump to the
+            // next subpass.
+            .end_render_pass()
+            .unwrap()
+            // Finish building the command buffer by calling `build`.
+            .build()
+            .unwrap();
 
         let future = previous_frame_end
             .take()
@@ -1417,7 +1450,7 @@ void main() {
             }
         }
         framecounter += 1;
-        if (Instant::now() - lastframetimeprintout).as_secs() > 10 {
+        if (Instant::now() - lastframetimeprintout).as_secs() > 5 {
             println!(
                 "Avg frame time: {}",
                 (Instant::now() - lastframetimeprintout).as_millis() as f64 / framecounter as f64

@@ -90,7 +90,7 @@ pub mod cpu {
     pub struct CpuRenderer {
         width: usize,
         height: usize,
-        rpp: usize,
+        pub rpp: usize,
         rbc: usize,
         imagecount: usize,
         pub scenes: Vec<VoxelScene>,
