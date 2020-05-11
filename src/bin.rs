@@ -198,7 +198,7 @@ fn main() {
         Format::R16G16B16A16Unorm,
         Some(queue.family()),
     )
-    .unwrap();
+        .unwrap();
 
     let imagestep2 = StorageImage::new(
         device.clone(),
@@ -209,7 +209,7 @@ fn main() {
         Format::R16G16B16A16Unorm,
         Some(queue.family()),
     )
-    .unwrap();
+        .unwrap();
 
     let imagegpusyncdump = StorageImage::new(
         device.clone(),
@@ -1324,20 +1324,9 @@ void main() {
         let command_buffer = unsafe {
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
                 .unwrap()
-                .execute_commands(cpubuffer)
+                .clear_color_image(cpuimages[image_num].clone(), vulkano::format::ClearValue::Float([0.0; 4]))
                 .unwrap()
-                .copy_image(
-                    cpuimages[image_num].clone(), //I think this forces cpuimage to have been used by the time this buffer finishes
-                    [0, 0, 0],
-                    0,
-                    0,
-                    imagegpusyncdump.clone(),
-                    [0, 0, 0],
-                    0,
-                    0,
-                    [WIDTH as u32, HEIGHT as u32, 1],
-                    1,
-                )
+                .execute_commands(cpubuffer)
                 .unwrap()
                 //.execute_commands(gpubuffer) //TODO make multiple cpuimages to fix glitches
                 //.unwrap()
