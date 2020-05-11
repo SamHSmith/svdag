@@ -1287,7 +1287,8 @@ void main() {
             camera_rotation: rotation,
         };
 
-        let gpubuffer = AutoCommandBufferBuilder::primary_one_time_submit( //start
+        let gpubuffer = AutoCommandBufferBuilder::primary_one_time_submit(
+            //start
             device.clone(),
             queue.family(),
         )
@@ -1308,17 +1309,17 @@ void main() {
         .unwrap()
         .build()
         .unwrap();
-		
-		let prefuture = previous_frame_end
+
+        let prefuture = previous_frame_end
             .take()
             .unwrap()
             .then_execute(queue.clone(), gpubuffer)
             .unwrap();
-			
-		prefuture.flush();	
-			
-		
-		let cpubuffer = cpurend.finish_render( //finish
+
+        prefuture.flush();
+
+        let cpubuffer = cpurend.finish_render(
+            //finish
             instance.clone(),
             device.clone(),
             queue.clone(),
@@ -1326,7 +1327,7 @@ void main() {
             cpuimages[image_num].clone(),
             0,
         );
-		
+
         let mut tempsets = Vec::new();
         tempsets.push(
             set3pool
@@ -1363,16 +1364,16 @@ void main() {
         };
         for i in 0..2 {
             let rpp = rppsets.pop().unwrap();
-        command_buffer_build = command_buffer_build
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline3.clone(),
-                (tempsets.pop().unwrap(), set3[image_num].clone()),
-                (rpp as u32, sofarRPP as u32),
-            )
+            command_buffer_build = command_buffer_build
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline3.clone(),
+                    (tempsets.pop().unwrap(), set3[image_num].clone()),
+                    (rpp as u32, sofarRPP as u32),
+                )
                 .unwrap();
             sofarRPP += rpp;
-}
+        }
         let command_buffer = command_buffer_build
             .dispatch(
                 [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
