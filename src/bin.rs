@@ -6,7 +6,7 @@ use lib::render::*;
 const WIDTH: usize = 256;
 const HEIGHT: usize = 256;
 
-const RPP: usize = 200;
+const RPP: usize = 10;
 const RBC: usize = 3;
 
 use lib::*;
