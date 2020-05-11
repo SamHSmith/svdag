@@ -6,7 +6,7 @@ use lib::render::*;
 const WIDTH: usize = 256;
 const HEIGHT: usize = 256;
 
-const RPP: usize = 10;
+const RPP: usize = 80;
 const RBC: usize = 3;
 
 use lib::*;
@@ -187,7 +187,7 @@ fn main() {
 
     let cubepos = new_vec(0.0, 0.0, 0.0);
 
-    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, RPP/10, RBC, 1);
+    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, 1, RBC, 1);
     cpurend.scenes[0] = VoxelScene {
         tree: tree,
         root: 1,
@@ -1287,16 +1287,7 @@ void main() {
             camera_rotation: rotation,
         };
 
-        let cpubuffer = cpurend.finish_render(
-            instance.clone(),
-            device.clone(),
-            queue.clone(),
-            cpubufferpool.clone(),
-            cpuimages[image_num].clone(),
-            0,
-        );
-
-        let gpubuffer = AutoCommandBufferBuilder::secondary_compute_one_time_submit(
+        let gpubuffer = AutoCommandBufferBuilder::primary_one_time_submit( //start
             device.clone(),
             queue.family(),
         )
@@ -1317,6 +1308,25 @@ void main() {
         .unwrap()
         .build()
         .unwrap();
+		
+		let prefuture = previous_frame_end
+            .take()
+            .unwrap()
+            .then_execute(queue.clone(), gpubuffer)
+            .unwrap();
+			
+		prefuture.flush();	
+			
+		
+		let cpubuffer = cpurend.finish_render( //finish
+            instance.clone(),
+            device.clone(),
+            queue.clone(),
+            cpubufferpool.clone(),
+            cpuimages[image_num].clone(),
+            0,
+        );
+		
         let mut tempsets = Vec::new();
         tempsets.push(
             set3pool
@@ -1348,14 +1358,7 @@ void main() {
                     vulkano::format::ClearValue::Float([0.0; 4]),
                 )
                 .unwrap()
-                .clear_color_image(
-                    imagestep2[image_num].clone(),
-                    vulkano::format::ClearValue::Float([0.0; 4]),
-                )
-                .unwrap()
                 .execute_commands(cpubuffer)
-                .unwrap()
-                .execute_commands(gpubuffer)
                 .unwrap()
         };
         for i in 0..2 {
@@ -1421,9 +1424,7 @@ void main() {
             .build()
             .unwrap();
 
-        let future = previous_frame_end
-            .take()
-            .unwrap()
+        let future = prefuture
             .join(acquire_future)
             .then_execute(queue.clone(), command_buffer)
             .unwrap()
