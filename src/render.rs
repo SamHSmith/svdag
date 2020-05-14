@@ -433,7 +433,7 @@ pub mod cpu {
 
             let cpuend = std::time::Instant::now();
 
-            println!("Cpu took {} ms", (cpuend - startcpu).as_millis());
+            //println!("Cpu took {} ms", (cpuend - startcpu).as_millis());
 
             // Save the buffer as "image.png"
             image::ImageBuffer::<image::Rgba<u16>, _>::from_raw(
