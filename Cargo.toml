@@ -12,8 +12,8 @@ image = "0.23.3"
 rand = "0.7.3"
 rayon = "1.3.0"
 cgmath = "0.17.0"
-vulkano = "0.18.0"
-vulkano-shaders = "0.18.0"
+vulkano = {path = "../vulkano/vulkano"}
+vulkano-shaders = {path = "../vulkano/vulkano-shaders"}
 crossvulkan = { path = "../crossvulkan", features = ["vulkano-support"] }
 
 

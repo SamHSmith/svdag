@@ -1286,29 +1286,24 @@ void main() {
             camera_position: campos,
             camera_rotation: rotation,
         };
-
+        println!("start");
         let gpubuffer = AutoCommandBufferBuilder::primary_one_time_submit(
             //start
             device.clone(),
             queue.family(),
         )
-        .unwrap()
+            .unwrap()
         .dispatch(
             [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
             compute_pipeline.clone(),
             (sets[image_num].clone()),
             gen_push_const(campos, right, up, forward, framenum),
         )
-        .unwrap()
-        .dispatch(
-            [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-            compute_pipeline2.clone(),
-            (set2[image_num].clone()),
-            (),
-        )
-        .unwrap()
+            .unwrap()
         .build()
-        .unwrap();
+            .unwrap();
+
+        println!("end");
 
         let prefuture = previous_frame_end
             .take()
@@ -1316,7 +1311,9 @@ void main() {
             .then_execute(queue.clone(), gpubuffer)
             .unwrap();
 
-        prefuture.flush();
+        //prefuture.flush();
+
+        //std::thread::sleep_ms(1000);
 
         let cpubuffer = cpurend.finish_render(
             //finish
@@ -1332,7 +1329,7 @@ void main() {
         tempsets.push(
             set3pool
                 .next()
-                .add_image(cpuimages[image_num].clone())
+                .add_image(imagestep2[image_num].clone())
                 .unwrap()
                 .build()
                 .unwrap(),
@@ -1340,23 +1337,25 @@ void main() {
         tempsets.push(
             set3pool
                 .next()
-                .add_image(imagestep2[image_num].clone())
+                .add_image(cpuimages[image_num].clone())
                 .unwrap()
                 .build()
                 .unwrap(),
         );
 
         let mut rppsets = Vec::new();
-        rppsets.push(cpurend.rpp);
         rppsets.push(RPP);
+        rppsets.push(0);
         let mut sofarRPP = 0;
 
         let mut command_buffer_build = unsafe {
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
                 .unwrap()
-                .clear_color_image(
-                    cpuimages[image_num].clone(),
-                    vulkano::format::ClearValue::Float([0.0; 4]),
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline2.clone(),
+                    (set2[image_num].clone()),
+                    (),
                 )
                 .unwrap()
                 .execute_commands(cpubuffer)
