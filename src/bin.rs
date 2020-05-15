@@ -661,7 +661,7 @@ uint get_voxel_child(uint voxelptr, uint childindex){
     }
 }
 
-const uint stacksize = 16;
+const uint stacksize = 3;
 
 struct StackFrame {
     vec3 location;
