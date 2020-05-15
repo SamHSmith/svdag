@@ -3,10 +3,10 @@ use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
 use lib::render::cpu::CpuRenderer;
 use lib::render::*;
 
-const WIDTH: usize = 256;
-const HEIGHT: usize = 256;
+const WIDTH: usize = 1024;
+const HEIGHT: usize = 1024;
 
-const RPP: usize = 10;
+const RPP: usize = 50;
 const RBC: usize = 3;
 
 use lib::*;
@@ -64,7 +64,7 @@ fn main() {
 
     glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
     let (mut window, events) = glfw
-        .create_window(512, 512, "Hello this is window", glfw::WindowMode::Windowed)
+        .create_window(1024, 1024, "Hello this is window", glfw::WindowMode::Windowed)
         .expect("Failed to create GLFW window."); //TODO WRAP
 
     /// This method is called once during initialization, then again whenever the window is resized
