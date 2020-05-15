@@ -675,80 +675,58 @@ uint get_voxel_child(uint voxelptr, uint childindex){
     }
 }
 
+const uint stacksize = 16;
+
+struct StackFrame {
+    vec3 location;
+    float size;
+    uint node;
+    uint subnode;
+};
 
 RayTarget cast_ray_voxel(vec3 start, vec3 dir, uint root, float specular) {
     float size = 1.0;
-    uint[8] activenodes;
-    activenodes[0]=root;
-    vec3[8] nodelocations;
-    nodelocations[0]=vec3(0.0);
 
     RayTarget closestleaf = RayTarget(vec3(0.0),vec3(0.0),vec3(0.0),vec3(0.0),0.0,0.0,0);
     closestleaf.t = FLT_MAX;
 
-    uint count = 1;
-    while(count > 0) {
+    StackFrame[stacksize] frames;
+    int stackindex = -1;
 
-        RayTarget[8] targets;
-        for(uint i=0; i < 8; i++) {
-            targets[i].t = FLT_MAX;
-        }
+    RayTarget h = cast_ray_v_box(start - vec3(0.0), dir, size, vec3(0.0), root, dir, specular);
 
-        for(uint i=0; i < count; i++) {
-            targets[i]=cast_ray_v_box(start - nodelocations[i], dir, size, nodelocations[i], activenodes[i], dir, specular);
-        }
+    if(h.t < FLT_MAX && h.t > 0){
+        stackindex++;
+        frames[stackindex] = StackFrame(vec3(0.0), size, root, 0);
+	  }
 
-        count=0;
+    while(stackindex >= 0) {
+		    int i = stackindex;
+        if(frames[i].subnode > 7){
+			      stackindex--;
+            continue;
+		    }
+        uint child = 1 << frames[i].subnode;
+        if((get_voxel_childmask(frames[i].node) & child) != 0) {
+            vec3 loc = frames[i].location + (oct_byte_to_vec(child) * frames[i].size / 2.0);
+            uint childnode = get_voxel_child(frames[i].node, frames[i].subnode);
+            RayTarget hit = cast_ray_v_box(start - loc, dir, frames[i].size / 2.0, loc, childnode, dir, specular);
 
-        #define CMP(x, y) (targets[x].t > targets[y].t)
-        #define SWAP(x, y) RayTarget tar = targets[x]; targets[x] = targets[y]; targets[y] = tar;
-        #define CSWAP(x, y) if(CMP(x, y)){SWAP(x, y)}
-
-/* sort
-[[0,1],[2,3],[4,5],[6,7]]
-[[0,2],[1,3],[4,6],[5,7]]
-[[1,2],[5,6],[0,4],[3,7]]
-[[1,5],[2,6]]
-[[1,4],[3,6]]
-[[2,4],[3,5]]
-[[3,4]]
-*/
-
-        CSWAP(0,1) CSWAP(2,3) CSWAP(4,5) CSWAP(6,7)
-        CSWAP(0,2) CSWAP(1,3) CSWAP(4,6) CSWAP(5,7)
-        CSWAP(1,2) CSWAP(5,6) CSWAP(0,5) CSWAP(3,7)
-        CSWAP(1,5) CSWAP(2,6)
-        CSWAP(1,4) CSWAP(3,6)
-        CSWAP(2,4) CSWAP(3,5)
-        CSWAP(3,4)
-
-        for(uint h = 0; h < targets.length(); h++){
-        RayTarget hit = targets[h];
-        if (hit.t < FLT_MAX) {
-            if ((get_voxel_flags(hit.node) & 1) != 0 && hit.t < closestleaf.t) {
-                closestleaf = hit;
-            } else {
-                uint newcount= count;
-                uint[8] newnodes;
-                vec3[8] newlocations;
-                for(uint i=0; i < 8; i++) {
-                    uint child = 1 << i;
-
-                    if((get_voxel_childmask(hit.node) & child) != 0) {
-                        newlocations[newcount] = + hit.nodelocation + (oct_byte_to_vec(child) * size / 2.0);
-                        newnodes[newcount]= get_voxel_child(hit.node, i);
-                        newcount++;
-                    }
+            if(hit.t > 0 && hit.t < FLT_MAX){
+                if((get_voxel_flags(childnode) & 1) != 0 && hit.t > 0 && hit.t < closestleaf.t){
+                    closestleaf = hit;
+                } else if(get_voxel_childmask(childnode) != 0){
+					          stackindex++;
+                    frames[stackindex] = StackFrame(loc, frames[i].size / 2.0, childnode, 0);
                 }
-                activenodes=newnodes;
-                nodelocations= newlocations;
-                count=newcount;
             }
-        }}
+        }
+		frames[i].subnode++;
 
-        size /= 2.0;
+		if(stackindex >= stacksize){
+			stackindex--;
+		}
     }
-
     return closestleaf;
 }
 
