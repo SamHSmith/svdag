@@ -3,10 +3,10 @@ use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
 use lib::render::cpu::CpuRenderer;
 use lib::render::*;
 
-const WIDTH: usize = 256;
-const HEIGHT: usize = 256;
+const WIDTH: usize = 512;
+const HEIGHT: usize = 512;
 
-const RPP: usize = 10;
+const RPP: usize = 20;
 const RBC: usize = 3;
 
 use lib::*;
@@ -139,8 +139,8 @@ fn main() {
     let node: &mut VoxelNode = tree.allocate_and_get_node();
     node.put_child(1, tree.allocate_node());
     node.get_child(tree, 1).flags = 1;
-    node.get_child(tree, 1).colour = [70, 50, 90];
-    node.get_child(tree, 1).emission = 0;
+    node.get_child(tree, 1).colour = [20, 30, 90];
+    node.get_child(tree, 1).emission = 255;
     node.get_child(tree, 1).roughness = 210;
     node.put_child(0, tree.allocate_node());
     let node2: &mut VoxelNode = node.get_child(tree, 0);
@@ -159,6 +159,9 @@ fn main() {
     node2.get_child(tree, 2).colour = [255, 219, 145];
     node2.get_child(tree, 2).roughness = 10;
     node2.get_child(tree, 2).metalness = 255;
+	node2.get_child(tree, 2).put_child(0, tree.allocate_node());
+	node2.get_child(tree, 2).get_child(tree, 0).flags = 1;
+	node2.get_child(tree, 2).get_child(tree, 0).colour = [255, 219, 145];
     node2.put_child(6, tree.allocate_node());
     node2.get_child(tree, 6).flags = 1;
     node2.get_child(tree, 6).colour = [50, 50, 50];
@@ -177,7 +180,7 @@ fn main() {
     //node.flags =1;
     node.colour = [255, 183, 235];
 
-    let mut campos = new_vec(-0.2, -0.4, -0.7);
+    let mut campos = new_vec(-0.2, -0.75, -1.7);
     let mut camrot = new_vec(-10.0, 0.0, 0.0);
     let rotation = Quaternion::from(Euler {
         x: Deg(camrot.x),
@@ -675,7 +678,7 @@ uint get_voxel_child(uint voxelptr, uint childindex){
     }
 }
 
-const uint stacksize = 32;
+const uint stacksize = 16;
 
 struct StackFrame {
     vec3 location;
@@ -691,36 +694,42 @@ RayTarget cast_ray_voxel(vec3 start, vec3 dir, uint root, float specular) {
     closestleaf.t = FLT_MAX;
 
     StackFrame[stacksize] frames;
-    uint stackindex = -1;
+    int stackindex = -1;
 
-    RayTarget h =cast_ray_v_box(start - vec3(0.0), dir, size, vec3(0.0), root, dir, specular);
+    RayTarget h = cast_ray_v_box(start - vec3(0.0), dir, size, vec3(0.0), root, dir, specular);
 
     if(h.t < FLT_MAX && h.t > 0){
         stackindex++;
         frames[stackindex] = StackFrame(vec3(0.0), size, root, 0);
-    }
-
+	}
+	
     while(stackindex >= 0) {
-        uint child = 1 << frames[stackindex].subnode;
-        if((get_voxel_childmask(frames[stackindex].node) & child) != 0) {
-            vec3 loc = frames[stackindex].location + (oct_byte_to_vec(child) * frames[stackindex].size / 2.0);
-            RayTarget hit = cast_ray_v_box(start - loc, dir, frames[stackindex].size / 2.0, loc, get_voxel_child(frames[stackindex].node, frames[stackindex].subnode), dir, specular);
+		int i = stackindex;
+        uint child = 1 << frames[i].subnode;
+        if((get_voxel_childmask(frames[i].node) & child) != 0) {
+            vec3 loc = frames[i].location + (oct_byte_to_vec(child) * frames[i].size / 2.0);
+            RayTarget hit = cast_ray_v_box(start - loc, dir, frames[i].size / 2.0, loc, get_voxel_child(frames[i].node, frames[i].subnode), dir, specular);
 
             if(hit.t > 0 && hit.t < FLT_MAX){
-                if((get_voxel_flags(hit.node) & 1) != 0 && hit.t < closestleaf.t){
+                if((get_voxel_flags(hit.node) & 1) != 0 && hit.t > 0 && hit.t < closestleaf.t){
                     closestleaf = hit;
-                    stackindex--;
-                    continue;
                 }
                 if((get_voxel_childmask(hit.node) & child) != 0){
-                    frames[stackindex].subnode++;
-                    stackindex++;
-                    frames[stackindex] = StackFrame(loc, frames[stackindex].size / 2.0, hit.node, 0);
+					stackindex++;
+                    frames[stackindex] = StackFrame(loc, frames[i].size / 2.0, hit.node, 0);
                 }
             }
         }
+		frames[i].subnode++;
+		
+		if(stackindex >= stacksize){
+			stackindex--;
+		}
+		
+		if(frames[stackindex].subnode > 7){
+			stackindex--;
+		}
     }
-
     return closestleaf;
 }
 
@@ -1258,7 +1267,7 @@ void main() {
             camera_position: campos,
             camera_rotation: rotation,
         };
-
+/*
         let cpubuffer = cpurend.finish_render(
             instance.clone(),
             device.clone(),
@@ -1267,7 +1276,7 @@ void main() {
             cpuimages[image_num].clone(),
             0,
         );
-
+*/
         let gpubuffer = AutoCommandBufferBuilder::secondary_compute_one_time_submit(
             device.clone(),
             queue.family(),
@@ -1290,6 +1299,7 @@ void main() {
         .build()
         .unwrap();
         let mut tempsets = Vec::new();
+		/*
         tempsets.push(
             set3pool
                 .next()
@@ -1297,7 +1307,7 @@ void main() {
                 .unwrap()
                 .build()
                 .unwrap(),
-        );
+        );*/
         tempsets.push(
             set3pool
                 .next()
@@ -1308,7 +1318,7 @@ void main() {
         );
 
         let mut rppsets = Vec::new();
-        rppsets.push(cpurend.rpp);
+        //rppsets.push(cpurend.rpp);
         rppsets.push(RPP);
         let mut sofarRPP = 0;
 
@@ -1324,13 +1334,13 @@ void main() {
                     imagestep2[image_num].clone(),
                     vulkano::format::ClearValue::Float([0.0; 4]),
                 )
-                .unwrap()
-                .execute_commands(cpubuffer)
+                //.execute_commands(cpubuffer)
+                //.unwrap()
                 .unwrap()
                 .execute_commands(gpubuffer)
                 .unwrap()
         };
-        for i in 0..2 {
+        for i in 0..1 {
             let rpp = rppsets.pop().unwrap();
         command_buffer_build = command_buffer_build
             .dispatch(
