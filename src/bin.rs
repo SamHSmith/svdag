@@ -1286,7 +1286,7 @@ void main() {
             camera_position: campos,
             camera_rotation: rotation,
         };
-
+/*
         let cpubuffer = cpurend.finish_render(
             instance.clone(),
             device.clone(),
@@ -1295,7 +1295,7 @@ void main() {
             cpuimages[image_num].clone(),
             0,
         );
-
+*/
         let gpubuffer = AutoCommandBufferBuilder::secondary_compute_one_time_submit(
             device.clone(),
             queue.family(),
@@ -1318,14 +1318,14 @@ void main() {
         .build()
         .unwrap();
         let mut tempsets = Vec::new();
-        tempsets.push(
+        /*tempsets.push(
             set3pool
                 .next()
                 .add_image(cpuimages[image_num].clone())
                 .unwrap()
                 .build()
                 .unwrap(),
-        );
+        );*/
         tempsets.push(
             set3pool
                 .next()
@@ -1336,29 +1336,29 @@ void main() {
         );
 
         let mut rppsets = Vec::new();
-        rppsets.push(cpurend.rpp);
+        //rppsets.push(cpurend.rpp);
         rppsets.push(RPP);
         let mut sofarRPP = 0;
 
         let mut command_buffer_build = unsafe {
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
                 .unwrap()
-                .clear_color_image(
-                    cpuimages[image_num].clone(),
-                    vulkano::format::ClearValue::Float([0.0; 4]),
-                )
-                .unwrap()
+                //.clear_color_image(
+                //    cpuimages[image_num].clone(),
+                //    vulkano::format::ClearValue::Float([0.0; 4]),
+                //)
+                //.unwrap()
                 .clear_color_image(
                     imagestep2[image_num].clone(),
                     vulkano::format::ClearValue::Float([0.0; 4]),
                 )
                 .unwrap()
-                .execute_commands(cpubuffer)
-                .unwrap()
+                //.execute_commands(cpubuffer)
+                //.unwrap()
                 .execute_commands(gpubuffer)
                 .unwrap()
         };
-        for i in 0..2 {
+        for i in 0..1 {
             let rpp = rppsets.pop().unwrap();
         command_buffer_build = command_buffer_build
             .dispatch(
