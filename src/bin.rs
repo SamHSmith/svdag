@@ -581,15 +581,11 @@ bool inbox(vec3 pos, float size){
 
 struct RayTarget{
     vec3 hitlocation;
-    vec3 nodelocation;
     vec3 hitnormal;
-    vec3 raydir;
     float t;
-    float specular;
-    uint node;
 };
 
-RayTarget cast_ray_v_box(vec3 start, vec3 dir, float size, vec3 nodelocation, uint node, vec3 globalray, float specular) {
+RayTarget cast_ray_v_box(vec3 start, vec3 dir, float size) {
     float t1 = (size * -0.5 - start.x) / dir.x;
     float t2 = (size * 0.5 - start.x) / dir.x;
 
@@ -622,23 +618,13 @@ RayTarget cast_ray_v_box(vec3 start, vec3 dir, float size, vec3 nodelocation, ui
 
     float min = min(b1, min(b2, min(b3, min(b4, min(b5, b6)))));
 
-    if(abs(b1 - min) < EPSILON){return RayTarget(nodelocation + pos1, nodelocation, normalize(biggest_axis(pos1)), globalray, b1, specular, node);}
-    if(abs(b2 - min) < EPSILON){return RayTarget(nodelocation + pos2, nodelocation, normalize(biggest_axis(pos2)), globalray, b2, specular, node);}
-    if(abs(b3 - min) < EPSILON){return RayTarget(nodelocation + pos3, nodelocation, normalize(biggest_axis(pos3)), globalray, b3, specular, node);}
-    if(abs(b4 - min) < EPSILON){return RayTarget(nodelocation + pos4, nodelocation, normalize(biggest_axis(pos4)), globalray, b4, specular, node);}
-    if(abs(b5 - min) < EPSILON){return RayTarget(nodelocation + pos5, nodelocation, normalize(biggest_axis(pos5)), globalray, b5, specular, node);}
-    if(abs(b6 - min) < EPSILON){return RayTarget(nodelocation + pos6, nodelocation, normalize(biggest_axis(pos6)), globalray, b6, specular, node);}
+    if(abs(b1 - min) < EPSILON){return RayTarget(pos1, normalize(biggest_axis(pos1)), b1);}
+    if(abs(b2 - min) < EPSILON){return RayTarget(pos2, normalize(biggest_axis(pos2)), b2);}
+    if(abs(b3 - min) < EPSILON){return RayTarget(pos3, normalize(biggest_axis(pos3)), b3);}
+    if(abs(b4 - min) < EPSILON){return RayTarget(pos4, normalize(biggest_axis(pos4)), b4);}
+    if(abs(b5 - min) < EPSILON){return RayTarget(pos5, normalize(biggest_axis(pos5)), b5);}
+    if(abs(b6 - min) < EPSILON){return RayTarget(pos6, normalize(biggest_axis(pos6)), b6);}
 }
-/*
-struct VoxelNode{
-    childmask: u8,
-    flags: u8,
-    colour : [u8; 3],
-
-    padding: [u8; 3],
-    //8 to 64 more bytes of pointers... kinda 32 do
-}
-*/
 
 uint get_voxel_childmask(uint ptr){
     return get_byte(read_vbuffer(ptr),0);
@@ -675,87 +661,74 @@ uint get_voxel_child(uint voxelptr, uint childindex){
     }
 }
 
+const uint stacksize = 3;
 
-RayTarget cast_ray_voxel(vec3 start, vec3 dir, uint root, float specular) {
+struct StackFrame {
+    vec3 location;
+    float size;
+    uint node;
+    uint subnode;
+};
+
+struct RayResult{
+    vec3 hitlocation;
+    vec3 hitnormal;
+    vec3 raydir;
+    float t;
+    float specular;
+    uint node;
+};
+
+RayResult cast_ray_voxel(vec3 start, vec3 dir, uint root, float specular) {
     float size = 1.0;
-    uint[8] activenodes;
-    activenodes[0]=root;
-    vec3[8] nodelocations;
-    nodelocations[0]=vec3(0.0);
 
-    RayTarget closestleaf = RayTarget(vec3(0.0),vec3(0.0),vec3(0.0),vec3(0.0),0.0,0.0,0);
+    RayResult closestleaf = RayResult(vec3(0.0),vec3(0.0),vec3(0.0),0.0,0.0,0);
     closestleaf.t = FLT_MAX;
 
-    uint count = 1;
-    while(count > 0) {
+    StackFrame[stacksize] frames;
+    int stackindex = -1;
 
-        RayTarget[8] targets;
-        for(uint i=0; i < 8; i++) {
-            targets[i].t = FLT_MAX;
-        }
+    RayTarget h = cast_ray_v_box(start - vec3(0.0), dir, size);
 
-        for(uint i=0; i < count; i++) {
-            targets[i]=cast_ray_v_box(start - nodelocations[i], dir, size, nodelocations[i], activenodes[i], dir, specular);
-        }
+    if(h.t < FLT_MAX && h.t > 0){
+        stackindex++;
+        frames[stackindex] = StackFrame(vec3(0.0), size, root, 0);
+	  }
 
-        count=0;
+    while(stackindex >= 0) {
+		    int i = stackindex;
+        if(frames[i].subnode > 7){
+			      stackindex--;
+            continue;
+		    }
+        uint child = 1 << frames[i].subnode;
+        if((get_voxel_childmask(frames[i].node) & child) != 0) {
+            vec3 loc = frames[i].location + (oct_byte_to_vec(child) * frames[i].size / 2.0);
+            uint childnode = get_voxel_child(frames[i].node, frames[i].subnode);
+            RayTarget hit = cast_ray_v_box(start - loc, dir, frames[i].size / 2.0);
 
-        #define CMP(x, y) (targets[x].t > targets[y].t)
-        #define SWAP(x, y) RayTarget tar = targets[x]; targets[x] = targets[y]; targets[y] = tar;
-        #define CSWAP(x, y) if(CMP(x, y)){SWAP(x, y)}
-
-/* sort
-[[0,1],[2,3],[4,5],[6,7]]
-[[0,2],[1,3],[4,6],[5,7]]
-[[1,2],[5,6],[0,4],[3,7]]
-[[1,5],[2,6]]
-[[1,4],[3,6]]
-[[2,4],[3,5]]
-[[3,4]]
-*/
-
-        CSWAP(0,1) CSWAP(2,3) CSWAP(4,5) CSWAP(6,7)
-        CSWAP(0,2) CSWAP(1,3) CSWAP(4,6) CSWAP(5,7)
-        CSWAP(1,2) CSWAP(5,6) CSWAP(0,5) CSWAP(3,7)
-        CSWAP(1,5) CSWAP(2,6)
-        CSWAP(1,4) CSWAP(3,6)
-        CSWAP(2,4) CSWAP(3,5)
-        CSWAP(3,4)
-
-        for(uint h = 0; h < targets.length(); h++){
-        RayTarget hit = targets[h];
-        if (hit.t < FLT_MAX) {
-            if ((get_voxel_flags(hit.node) & 1) != 0 && hit.t < closestleaf.t) {
-                closestleaf = hit;
-            } else {
-                uint newcount= count;
-                uint[8] newnodes;
-                vec3[8] newlocations;
-                for(uint i=0; i < 8; i++) {
-                    uint child = 1 << i;
-
-                    if((get_voxel_childmask(hit.node) & child) != 0) {
-                        newlocations[newcount] = + hit.nodelocation + (oct_byte_to_vec(child) * size / 2.0);
-                        newnodes[newcount]= get_voxel_child(hit.node, i);
-                        newcount++;
-                    }
+            if(hit.t > 0 && hit.t < FLT_MAX){
+                if((get_voxel_flags(childnode) & 1) != 0 && hit.t > 0 && hit.t < closestleaf.t){
+                    closestleaf = RayResult(hit.hitlocation + loc, hit.hitnormal, dir, hit.t, specular, childnode);
+                } else if(get_voxel_childmask(childnode) != 0){
+					          stackindex++;
+                    frames[stackindex] = StackFrame(loc, frames[i].size / 2.0, childnode, 0);
                 }
-                activenodes=newnodes;
-                nodelocations= newlocations;
-                count=newcount;
             }
-        }}
+        }
+		frames[i].subnode++;
 
-        size /= 2.0;
+		if(stackindex >= stacksize){
+			stackindex--;
+		}
     }
-
     return closestleaf;
 }
 
 const uint RBC = 4; // + 1
 const float EMISSION = 15.0;
 
-vec3 calculate_colour(RayTarget t, vec3 nc, float ns){
+vec3 calculate_colour(RayResult t, vec3 nc, float ns){
     float specular = ns * ((fresnel(-t.raydir, t.hitnormal) * (1.0 - get_voxel_roughness(t.node))) * ((0.5 * (1.0 - get_voxel_metalness(t.node))) + (0.98 * get_voxel_metalness(t.node))));
     vec3 specular_highlight = ((vec3(0.5) * (1.0 - get_voxel_metalness(t.node)))
             + (get_voxel_colour(t.node) * get_voxel_metalness(t.node)))
@@ -779,7 +752,7 @@ void main() {
 
     vec3 colour = vec3(0.0);
 
-    RayTarget groups[RBC];
+    RayResult groups[RBC];
 
 
         vec2 randcoord = coords + (pixelsize * vec2(rand(vec2(coords) * float(gl_GlobalInvocationID.z)),
