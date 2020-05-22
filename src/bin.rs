@@ -3,11 +3,10 @@ use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
 use lib::render::cpu::CpuRenderer;
 use lib::render::*;
 
-const WIDTH: usize = 256;
-const HEIGHT: usize = 256;
+const WIDTH: usize = 512;
+const HEIGHT: usize = 512;
 
-const RPP: usize = 10;
-const RBC: usize = 3;
+const RPP: usize = 25;
 
 use lib::*;
 
@@ -62,12 +61,10 @@ fn main() {
         physical.ty()
     );
 
-    glfw.window_hint(WindowHint::ClientApi(ClientApiHint::NoApi));
-    let (mut window, events) = glfw
-        .create_window(512, 512, "Hello this is window", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window."); //TODO WRAP
+    use crossvulkan::CrossWindow;
+    let mut window = CrossWindow::new_windowed(512, 512, &mut cv);
 
-    /// This method is called once during initialization, then again whenever the window is resized
+    /// This method is called once during initialization, then again whenever the window.window is resized
     fn window_size_dependent_setup(
         images: &[Arc<SwapchainImage<()>>],
         render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
@@ -98,7 +95,7 @@ fn main() {
 
     let mut vksurf: vk_sys::SurfaceKHR = 0;
     assert_eq!(
-        window.create_window_surface(cv.instance, std::ptr::null(), &mut vksurf),
+        window.window.create_window_surface(cv.instance, std::ptr::null(), &mut vksurf),
         vk_sys::SUCCESS
     );
 
@@ -178,12 +175,12 @@ fn main() {
     node.colour = [255, 183, 235];
 
     let mut campos = new_vec(-0.2, -0.4, -0.7);
-    let mut camrot = new_vec(-10.0, 0.0, 0.0);
-    let rotation = Quaternion::from(Euler {
-        x: Deg(camrot.x),
-        y: Deg(camrot.y),
-        z: Deg(camrot.z),
-    });
+    let mut camrot = new_vec(-10.0, 40.0, 0.0);
+    fn get_rotation(camrot : Vector3<f64>) -> Quaternion<f64> {
+        use cgmath::Rotation3;
+        Quaternion::<f64>::from_axis_angle(new_vec(0.0, 1.0, 0.0), Deg(camrot.y)) *
+        Quaternion::<f64>::from_axis_angle(new_vec(1.0, 0.0, 0.0), Deg(camrot.x))
+    }
 
     let cubepos = new_vec(0.0, 0.0, 0.0);
 /*
@@ -192,7 +189,7 @@ fn main() {
         tree: tree,
         root: 1,
         camera_position: campos,
-        camera_rotation: rotation,
+        camera_get_rotation(camrot): get_rotation(camrot),
     };
 
     use vulkano::buffer::CpuBufferPool;
@@ -220,23 +217,23 @@ fn main() {
         let usage = caps.supported_usage_flags;
 
         // The alpha mode indicates how the alpha value of the final image will behave. For example
-        // you can choose whether the window will be opaque or transparent.
+        // you can choose whether the window.window will be opaque or transparent.
         let alpha = caps.supported_composite_alpha.iter().next().unwrap();
 
         // Choosing the internal format that the images will have.
         let format = caps.supported_formats[0].0;
 
-        // The dimensions of the window, only used to initially setup the swapchain.
+        // The dimensions of the window.window, only used to initially setup the swapchain.
         // NOTE:
         // On some drivers the swapchain dimensions are specified by `caps.current_extent` and the
         // swapchain size must use these dimensions.
-        // These dimensions are always the same as the window dimensions
+        // These dimensions are always the same as the window.window dimensions
         //
         // However other drivers dont specify a value i.e. `caps.current_extent` is `None`
-        // These drivers will allow anything but the only sensible value is the window dimensions.
+        // These drivers will allow anything but the only sensible value is the window.window dimensions.
         //
-        // Because for both of these cases, the swapchain needs to be the window dimensions, we just use that.
-        let dimensions: [u32; 2] = [window.get_size().0 as u32, window.get_size().1 as u32];
+        // Because for both of these cases, the swapchain needs to be the window.window dimensions, we just use that.
+        let dimensions: [u32; 2] = [window.window.get_size().0 as u32, window.window.get_size().1 as u32];
 
         // Please take a look at the docs for the meaning of the parameters we didn't mention.
         Swapchain::new(
@@ -475,7 +472,7 @@ fn main() {
             .vertex_shader(vs.main_entry_point(), ())
             // The content of the vertex buffer describes a list of triangles.
             .triangle_list()
-            // Use a resizable viewport set to draw over the entire window
+            // Use a resizable viewport set to draw over the entire window.window
             .viewports_dynamic_scissors_irrelevant(1)
             // See `vertex_shader`.
             .fragment_shader(fs.main_entry_point(), ())
@@ -1043,19 +1040,19 @@ void main() {
         ));
     }
 
-    let right = rotation
+    let right = get_rotation(camrot)
         * Vector3::<f64> {
             x: 1.0,
             y: 0.0,
             z: 0.0,
         };
-    let up = rotation
+    let up = get_rotation(camrot)
         * Vector3::<f64> {
             x: 0.0,
             y: 1.0,
             z: 0.0,
         };
-    let forward = rotation
+    let forward = get_rotation(camrot)
         * Vector3::<f64> {
             x: 0.0,
             y: 0.0,
@@ -1109,8 +1106,8 @@ void main() {
     )
         .unwrap();
 
-    while !window.should_close() {
-        glfw.poll_events();
+    while !window.window.should_close() {
+        window.poll();
 
         framenum += 1;
 
@@ -1120,15 +1117,15 @@ void main() {
         // already processed, and frees the resources that are no longer needed.
         previous_frame_end.as_mut().unwrap().cleanup_finished();
 
-        // Whenever the window resizes we need to recreate everything dependent on the window size.
+        // Whenever the window.window resizes we need to recreate everything dependent on the window.window size.
         // In this example that includes the swapchain, the framebuffers and the dynamic state viewport.
         if recreate_swapchain {
-            // Get the new dimensions of the window.
-            let dimensions: [u32; 2] = [window.get_size().0 as u32, window.get_size().1 as u32];
+            // Get the new dimensions of the window.window.
+            let dimensions: [u32; 2] = [window.window.get_size().0 as u32, window.window.get_size().1 as u32];
 
             let (new_swapchain, new_images) = match swapchain.recreate_with_dimensions(dimensions) {
                 Ok(r) => r,
-                // This error tends to happen when the user is manually resizing the window.
+                // This error tends to happen when the user is manually resizing the window.window.
                 // Simply restarting the loop is the easiest way to fix this issue.
                 Err(SwapchainCreationError::UnsupportedDimensions) => continue,
                 Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
@@ -1161,7 +1158,7 @@ void main() {
 
         // acquire_next_image can be successful, but suboptimal. This means that the swapchain image
         // will still work, but it may not display correctly. With some drivers this can be when
-        // the window resizes, but it may not cause the swapchain to become out of date.
+        // the window.window resizes, but it may not cause the swapchain to become out of date.
         if suboptimal {
             recreate_swapchain = true;
         }
@@ -1169,13 +1166,42 @@ void main() {
         // Specify the color to clear the framebuffer with i.e. blue
         let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
+        let mouse_delta = window.get_mouse_delta();
+        camrot += new_vec(-mouse_delta.y, mouse_delta.x, 0.0) / 2.0;
+        let mut x = camrot.x;
+        if x > 90.0 {
+            x = 90.0;
+        } else if x < -90.0 {
+            x=-90.0;
+        }
+        camrot = new_vec(x, camrot.y, camrot.z);
+
+        let right = get_rotation(camrot)
+            * Vector3::<f64> {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            };
+        let up = get_rotation(camrot)
+            * Vector3::<f64> {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            };
+        let forward = get_rotation(camrot)
+            * Vector3::<f64> {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            };
         campos += forward / 1000.0;
+
 /*
         cpurend.scenes[0] = VoxelScene {
             tree: tree,
             root: 1,
             camera_position: campos,
-            camera_rotation: rotation,
+            camera_get_rotation(camrot): get_rotation(camrot),
         };
 
         let cpubuffer = cpurend.finish_render(
@@ -1209,11 +1235,15 @@ void main() {
         let mut rppsets = Vec::new();
         //rppsets.push(cpurend.rpp);
         rppsets.push(RPP);
-        let mut sofarRPP = 0;
+        let mut sofar_rpp = 0;
 
         let mut command_buffer_build =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-                .unwrap()
+            .unwrap()
+            .clear_color_image(imagestep[image_num].clone(), vulkano::format::ClearValue::Float([0.0; 4]))
+            .unwrap()
+            .clear_color_image(imagestep2[image_num].clone(), vulkano::format::ClearValue::Float([0.0; 4]))
+            .unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
                     compute_pipeline.clone(),
@@ -1248,10 +1278,10 @@ void main() {
                 [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                 compute_pipeline3.clone(),
                 (tempsets.pop().unwrap(), set3[image_num].clone()),
-                (rpp as u32, sofarRPP as u32),
+                (rpp as u32, sofar_rpp as u32),
             )
                 .unwrap();
-            sofarRPP += rpp;
+            sofar_rpp += rpp;
         }
         let command_buffer = command_buffer_build
             .dispatch(
