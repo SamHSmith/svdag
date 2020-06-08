@@ -3,10 +3,10 @@ use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
 use lib::render::cpu::CpuRenderer;
 use lib::render::*;
 
-const WIDTH: usize = 512;
-const HEIGHT: usize = 512;
+const WIDTH: usize = 400;
+const HEIGHT: usize = 400;
 
-const RPP: usize = 25;
+const RPP: usize = 400;
 
 use lib::*;
 
@@ -95,7 +95,9 @@ fn main() {
 
     let mut vksurf: vk_sys::SurfaceKHR = 0;
     assert_eq!(
-        window.window.create_window_surface(cv.instance, std::ptr::null(), &mut vksurf),
+        window
+            .window
+            .create_window_surface(cv.instance, std::ptr::null(), &mut vksurf),
         vk_sys::SUCCESS
     );
 
@@ -176,26 +178,26 @@ fn main() {
 
     let mut campos = new_vec(-0.2, -0.4, -0.7);
     let mut camrot = new_vec(-10.0, 40.0, 0.0);
-    fn get_rotation(camrot : Vector3<f64>) -> Quaternion<f64> {
+    fn get_rotation(camrot: Vector3<f64>) -> Quaternion<f64> {
         use cgmath::Rotation3;
-        Quaternion::<f64>::from_axis_angle(new_vec(0.0, 1.0, 0.0), Deg(camrot.y)) *
-        Quaternion::<f64>::from_axis_angle(new_vec(1.0, 0.0, 0.0), Deg(camrot.x))
+        Quaternion::<f64>::from_axis_angle(new_vec(0.0, 1.0, 0.0), Deg(camrot.y))
+            * Quaternion::<f64>::from_axis_angle(new_vec(1.0, 0.0, 0.0), Deg(camrot.x))
     }
 
     let cubepos = new_vec(0.0, 0.0, 0.0);
-/*
-    let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, RPP/10, RBC, 1);
-    cpurend.scenes[0] = VoxelScene {
-        tree: tree,
-        root: 1,
-        camera_position: campos,
-        camera_get_rotation(camrot): get_rotation(camrot),
-    };
+    /*
+        let mut cpurend = CpuRenderer::new(WIDTH, HEIGHT, RPP/10, RBC, 1);
+        cpurend.scenes[0] = VoxelScene {
+            tree: tree,
+            root: 1,
+            camera_position: campos,
+            camera_get_rotation(camrot): get_rotation(camrot),
+        };
 
-    use vulkano::buffer::CpuBufferPool;
+        use vulkano::buffer::CpuBufferPool;
 
-    let cpubufferpool = CpuBufferPool::upload(device.clone());
-*/
+        let cpubufferpool = CpuBufferPool::upload(device.clone());
+    */
     let vbuffer = unsafe {
         let mut bufusage = BufferUsage::none();
         bufusage.storage_buffer = true; //TODO potensial BufferUsage::storage_buffer()?
@@ -233,7 +235,10 @@ fn main() {
         // These drivers will allow anything but the only sensible value is the window.window dimensions.
         //
         // Because for both of these cases, the swapchain needs to be the window.window dimensions, we just use that.
-        let dimensions: [u32; 2] = [window.window.get_size().0 as u32, window.window.get_size().1 as u32];
+        let dimensions: [u32; 2] = [
+            window.window.get_size().0 as u32,
+            window.window.get_size().1 as u32,
+        ];
 
         // Please take a look at the docs for the meaning of the parameters we didn't mention.
         Swapchain::new(
@@ -256,12 +261,51 @@ fn main() {
     };
 
     use vulkano::format;
+    use vulkano::image::immutable::ImmutableImageInitialization;
     use vulkano::image::AttachmentImage;
+    use vulkano::image::ImageLayout;
     use vulkano::image::ImageUsage;
+    use vulkano::image::ImmutableImage;
 
     let mut _usage = ImageUsage::none();
     _usage.sampled = true;
     _usage.transfer_destination = true;
+
+    let reader =
+        std::io::BufReader::new(std::fs::File::open("noise.png").expect("can't find noise.png"));
+
+    let blue_noise_src = image::load(reader, image::ImageFormat::Png).unwrap();
+
+    let (blue_noise, _write) = ImmutableImage::uninitialized(
+        device.clone(),
+        Dimensions::Dim2d {
+            width: blue_noise_src.as_rgba8().unwrap().width() as u32,
+            height: blue_noise_src.as_rgba8().unwrap().height() as u32,
+        },
+        format::R8Unorm,
+        1,
+        _usage,
+        ImageLayout::TransferDstOptimal,
+        vec![queue.family()],
+    )
+    .unwrap();
+
+    let _imgbuffer = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::transfer_source(),
+        false,
+        blue_noise_src.as_rgba8().unwrap().pixels().map(|x| {((x[0] as u32 + x[1] as u32  + x[2] as u32) / 3) as u8}),
+    )
+    .unwrap();
+
+    let cmdbuf = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue_family)
+        .unwrap()
+        .copy_buffer_to_image(_imgbuffer, _write)
+        .unwrap()
+        .build()
+        .unwrap();
+
+    cmdbuf.execute(queue.clone());
 
     let rayimages: Vec<Arc<AttachmentImage<format::R8G8B8A8Unorm>>> = (0..images.len())
         .into_iter()
@@ -308,23 +352,23 @@ fn main() {
             .unwrap()
         })
         .collect();
-/*
-    let cpuimages: Vec<Arc<StorageImage<format::R16G16B16A16Unorm>>> = (0..images.len())
-        .into_iter()
-        .map(|x| {
-            StorageImage::new(
-                device.clone(),
-                Dimensions::Dim2d {
-                    width: WIDTH as u32,
-                    height: HEIGHT as u32,
-                },
-                vulkano::format::R16G16B16A16Unorm,
-                Some(queue.family()),
-            )
-            .unwrap()
-        })
-        .collect();
-*/
+    /*
+        let cpuimages: Vec<Arc<StorageImage<format::R16G16B16A16Unorm>>> = (0..images.len())
+            .into_iter()
+            .map(|x| {
+                StorageImage::new(
+                    device.clone(),
+                    Dimensions::Dim2d {
+                        width: WIDTH as u32,
+                        height: HEIGHT as u32,
+                    },
+                    vulkano::format::R16G16B16A16Unorm,
+                    Some(queue.family()),
+                )
+                .unwrap()
+            })
+            .collect();
+    */
     let imagecombines: Vec<Arc<StorageImage<Format>>> = (0..images.len())
         .into_iter()
         .map(|x| {
@@ -509,7 +553,8 @@ fn main() {
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16) uniform writeonly image3D img;
-layout(set = 0, binding = 1) buffer VoxelBuffer {
+layout(set = 0, binding = 1) uniform sampler2D noise;
+layout(set = 0, binding = 2) buffer VoxelBuffer {
     vec4[] data;
 };
 
@@ -522,7 +567,10 @@ layout(push_constant) uniform pushConstants {
 } pc;
 
 float rand(vec2 co){
-    return fract(sin(dot(vec2(co.x + float(pc.framenum * 5), co.y * float(pc.framenum + 2)),vec2(12.9898,78.233))) * 43758.5453);
+    return texture(noise, co * 1.1).x;
+}
+float rand2(vec2 co, uint x, uint y, uint maxx, uint maxy){
+    return rand(co) * rand(vec2(x,y) / vec2(maxx, maxy));
 }
 
 vec3 reflectvec(vec3 v, vec3 normal){
@@ -751,9 +799,8 @@ void main() {
 
     RayResult groups[RBC];
 
-
-        vec2 randcoord = coords + (pixelsize * vec2(rand(vec2(coords) * float(gl_GlobalInvocationID.z)),
- rand(vec2(coords) * float(gl_GlobalInvocationID.z + 1))));
+        vec2 randcoord = coords + (pixelsize * vec2(rand2(coords, gl_GlobalInvocationID.z, pc.framenum, imageSize(img).z, 100),
+ rand2(coords, gl_GlobalInvocationID.z, pc.framenum + 1, imageSize(img).z, 101)));
         vec3 raydir = ((randcoord.x * 2.0 - 1.0) * vec3(pc.right)) + ((randcoord.y * 2.0 - 1.0) * vec3(pc.up)) + vec3(pc.forward);
         vec3 start =  vec3(pc.campos);
 
@@ -765,8 +812,8 @@ return; }
 
         for(uint g = 1; g < RBC; g++){
             float roughness = get_voxel_roughness(groups[g-1].node);
-            float specular= round(float(rand(randcoord * (g + 1)) > (0.5 * (1.0 - get_voxel_metalness(groups[g-1].node)))));
-            vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, vec2(randcoord) * float(g));
+            float specular= round(float(rand2(coords, gl_GlobalInvocationID.z, pc.framenum + 2 * g, imageSize(img).z, 102) > (0.5 * (1.0 - get_voxel_metalness(groups[g-1].node)))));
+            vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, vec2(rand2(coords, gl_GlobalInvocationID.z, pc.framenum + 3 * g, imageSize(img).z, 103), rand2(coords, gl_GlobalInvocationID.z, pc.framenum + 4 * g, imageSize(img).z, 104)));
             vec3 specdir=(roughness * newdir) + ((1.0 - roughness) * reflectvec(groups[g-1].raydir, groups[g-1].hitnormal));
             groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), normalize((newdir * (1.0-specular)) + (specdir * specular)), 1, specular);
         }
@@ -927,6 +974,20 @@ void main() {
     );
 
     use vulkano::descriptor::descriptor_set::DescriptorSet;
+    let _soft_repeat = Sampler::new(
+        device.clone(),
+        Filter::Linear,
+        Filter::Linear,
+        MipmapMode::Nearest,
+        SamplerAddressMode::Repeat,
+        SamplerAddressMode::Repeat,
+        SamplerAddressMode::Repeat,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+    )
+    .unwrap();
 
     let mut sets = Vec::new();
     for i in 0..images.len() {
@@ -939,6 +1000,8 @@ void main() {
                     .clone(),
             )
             .add_image(imagestep[i].clone())
+            .unwrap()
+            .add_sampled_image(blue_noise.clone(), _soft_repeat.clone())
             .unwrap()
             .add_buffer(vbuffer.clone())
             .unwrap()
@@ -1104,12 +1167,15 @@ void main() {
         vulkano::format::R16G16B16A16Unorm,
         Some(queue.family()),
     )
-        .unwrap();
+    .unwrap();
 
     while !window.window.should_close() {
         window.poll();
 
         framenum += 1;
+        if framenum > 99 {
+            framenum = 0;
+        }
 
         // It is important to call this function from time to time, otherwise resources will keep
         // accumulating and you will eventually reach an out of memory error.
@@ -1121,7 +1187,10 @@ void main() {
         // In this example that includes the swapchain, the framebuffers and the dynamic state viewport.
         if recreate_swapchain {
             // Get the new dimensions of the window.window.
-            let dimensions: [u32; 2] = [window.window.get_size().0 as u32, window.window.get_size().1 as u32];
+            let dimensions: [u32; 2] = [
+                window.window.get_size().0 as u32,
+                window.window.get_size().1 as u32,
+            ];
 
             let (new_swapchain, new_images) = match swapchain.recreate_with_dimensions(dimensions) {
                 Ok(r) => r,
@@ -1172,7 +1241,7 @@ void main() {
         if x > 90.0 {
             x = 90.0;
         } else if x < -90.0 {
-            x=-90.0;
+            x = -90.0;
         }
         camrot = new_vec(x, camrot.y, camrot.z);
 
@@ -1196,7 +1265,7 @@ void main() {
             };
         campos += forward / 1000.0;
 
-/*
+        /*
         cpurend.scenes[0] = VoxelScene {
             tree: tree,
             root: 1,
@@ -1214,15 +1283,15 @@ void main() {
         );
          */
 
-        let mut tempsets = Vec::new();/*
-        tempsets.push(
-            set3pool
-                .next()
-                .add_image(cpuimages[image_num].clone())
-                .unwrap()
-                .build()
-                .unwrap(),
-        );*/
+        let mut tempsets = Vec::new(); /*
+                                       tempsets.push(
+                                           set3pool
+                                               .next()
+                                               .add_image(cpuimages[image_num].clone())
+                                               .unwrap()
+                                               .build()
+                                               .unwrap(),
+                                       );*/
         tempsets.push(
             set3pool
                 .next()
@@ -1239,11 +1308,17 @@ void main() {
 
         let mut command_buffer_build =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-            .unwrap()
-            .clear_color_image(imagestep[image_num].clone(), vulkano::format::ClearValue::Float([0.0; 4]))
-            .unwrap()
-            .clear_color_image(imagestep2[image_num].clone(), vulkano::format::ClearValue::Float([0.0; 4]))
-            .unwrap()
+                .unwrap()
+                .clear_color_image(
+                    imagestep[image_num].clone(),
+                    vulkano::format::ClearValue::Float([0.0; 4]),
+                )
+                .unwrap()
+                .clear_color_image(
+                    imagestep2[image_num].clone(),
+                    vulkano::format::ClearValue::Float([0.0; 4]),
+                )
+                .unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
                     compute_pipeline.clone(),
@@ -1257,29 +1332,29 @@ void main() {
                     (set2[image_num].clone()),
                     (),
                 )
-            .unwrap()
-            .copy_image(
-                imagestep2[image_num].clone(),
-                [0; 3],
-                0,
-                0,
-                dumpimage.clone(),
-                [0; 3],
-                0,
-                0,
-                [WIDTH as u32, HEIGHT as u32, 1],
-                1,
-            )
-            .unwrap();
+                .unwrap()
+                .copy_image(
+                    imagestep2[image_num].clone(),
+                    [0; 3],
+                    0,
+                    0,
+                    dumpimage.clone(),
+                    [0; 3],
+                    0,
+                    0,
+                    [WIDTH as u32, HEIGHT as u32, 1],
+                    1,
+                )
+                .unwrap();
         for i in 0..1 {
             let rpp = rppsets.pop().unwrap();
-        command_buffer_build = command_buffer_build
-            .dispatch(
-                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
-                compute_pipeline3.clone(),
-                (tempsets.pop().unwrap(), set3[image_num].clone()),
-                (rpp as u32, sofar_rpp as u32),
-            )
+            command_buffer_build = command_buffer_build
+                .dispatch(
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                    compute_pipeline3.clone(),
+                    (tempsets.pop().unwrap(), set3[image_num].clone()),
+                    (rpp as u32, sofar_rpp as u32),
+                )
                 .unwrap();
             sofar_rpp += rpp;
         }
