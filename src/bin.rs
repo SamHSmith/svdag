@@ -3,10 +3,11 @@ use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
 use lib::render::cpu::CpuRenderer;
 use lib::render::*;
 
-const WIDTH: usize = 512;
-const HEIGHT: usize = 512;
+const WIDTH: usize = 640;
+const HEIGHT: usize = 480;
 
-const RPP: usize = 30;
+const RPP_mult: usize = 1;
+const RPP_buffer : usize = 10;
 
 use lib::*;
 
@@ -328,7 +329,7 @@ fn main() {
                 Dimensions::Dim3d {
                     width: WIDTH as u32,
                     height: HEIGHT as u32,
-                    depth: RPP as u32,
+                    depth: RPP_buffer as u32,
                 },
                 vulkano::format::R16G16B16A16Unorm,
                 Some(queue.family()),
@@ -1291,24 +1292,30 @@ void main() {
                                                .unwrap()
                                                .build()
                                                .unwrap(),
-                                       );*/
-        tempsets.push(
-            set3pool
-                .next()
-                .add_image(imagestep2[image_num].clone())
-                .unwrap()
-                .build()
-                .unwrap(),
-        );
+    );*/
 
         let mut rppsets = Vec::new();
         //rppsets.push(cpurend.rpp);
-        rppsets.push(RPP);
+        for i in 0..RPP_mult {
+            rppsets.push(RPP_buffer);
+            tempsets.push(
+                set3pool
+                    .next()
+                    .add_image(imagestep2[image_num].clone())
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            );
+        }
         let mut sofar_rpp = 0;
 
         let mut command_buffer_build =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-                .unwrap()
+            .unwrap();
+
+        while rppsets.len() > 0 {
+            let rpp = rppsets.pop().unwrap();
+            command_buffer_build = command_buffer_build
                 .clear_color_image(
                     imagestep[image_num].clone(),
                     vulkano::format::ClearValue::Float([0.0; 4]),
@@ -1320,7 +1327,7 @@ void main() {
                 )
                 .unwrap()
                 .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP as u32],
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP_buffer as u32],
                     compute_pipeline.clone(),
                     (sets[image_num].clone()),
                     gen_push_const(campos, right, up, forward, framenum),
@@ -1345,10 +1352,7 @@ void main() {
                     [WIDTH as u32, HEIGHT as u32, 1],
                     1,
                 )
-                .unwrap();
-        for i in 0..1 {
-            let rpp = rppsets.pop().unwrap();
-            command_buffer_build = command_buffer_build
+                .unwrap()
                 .dispatch(
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                     compute_pipeline3.clone(),
@@ -1357,6 +1361,7 @@ void main() {
                 )
                 .unwrap();
             sofar_rpp += rpp;
+            framenum += 1;
         }
         let command_buffer = command_buffer_build
             .dispatch(
