@@ -7,11 +7,19 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: usize = 1;
-const RPP_buffer : usize = 10;
+const RPP_buffer: usize = 10;
+
+const SNAP_RPP_mult: usize = 100;
+const SNAP_LENGTH : usize = 10;
 
 use lib::*;
 
 fn main() {
+    use chrono::prelude::*;
+
+    let mut snapcount = 1usize;
+    let mut snaptime = Utc::now();
+
     use image::ImageBuffer;
     use image::Rgba;
     use std::sync::Arc;
@@ -295,7 +303,11 @@ fn main() {
         device.clone(),
         BufferUsage::transfer_source(),
         false,
-        blue_noise_src.as_rgba8().unwrap().pixels().map(|x| {((x[0] as u32 + x[1] as u32  + x[2] as u32) / 3) as u8}),
+        blue_noise_src
+            .as_rgba8()
+            .unwrap()
+            .pixels()
+            .map(|x| ((x[0] as u32 + x[1] as u32 + x[2] as u32) / 3) as u8),
     )
     .unwrap();
 
@@ -1233,7 +1245,7 @@ void main() {
             recreate_swapchain = true;
         }
 
-        // Specify the color to clear the framebuffer with i.e. blue
+        // Specify the color to clear the framebuffer with i.e. blue ish sorta really actually black
         let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
         let mouse_delta = window.get_mouse_delta();
@@ -1246,13 +1258,21 @@ void main() {
         }
         camrot = new_vec(x, camrot.y, camrot.z);
 
+        if snapcount > 0 {
+            snapcount -= 1;
+        } else {
+            if window.window.get_key(glfw::Key::O) == glfw::Action::Press {
+                snapcount = SNAP_LENGTH;
+            }
+        }
+
         let right = get_rotation(camrot)
             * Vector3::<f64> {
                 x: 1.0,
                 y: 0.0,
                 z: 0.0,
             };
-        let up = get_rotation(camrot)
+        let down = get_rotation(camrot)
             * Vector3::<f64> {
                 x: 0.0,
                 y: 1.0,
@@ -1264,7 +1284,25 @@ void main() {
                 y: 0.0,
                 z: 1.0,
             };
-        campos += forward / 1000.0;
+
+        if window.window.get_key(glfw::Key::W) == glfw::Action::Press {
+            campos += forward / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::S) == glfw::Action::Press {
+            campos -= forward / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::D) == glfw::Action::Press {
+            campos += right / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::A) == glfw::Action::Press {
+            campos -= right / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::Space) == glfw::Action::Press {
+            campos -= down / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::LeftShift) == glfw::Action::Press {
+            campos += down / 1000.0;
+        }
 
         /*
         cpurend.scenes[0] = VoxelScene {
@@ -1285,18 +1323,28 @@ void main() {
          */
 
         let mut tempsets = Vec::new(); /*
-                                       tempsets.push(
-                                           set3pool
-                                               .next()
-                                               .add_image(cpuimages[image_num].clone())
-                                               .unwrap()
-                                               .build()
-                                               .unwrap(),
-    );*/
+                                                                          tempsets.push(
+                                                                              set3pool
+                                                                                  .next()
+                                                                                  .add_image(cpuimages[image_num].clone())
+                                                                                  .unwrap()
+                                                                                  .build()
+                                                                                  .unwrap(),
+                                       );*/
 
         let mut rppsets = Vec::new();
         //rppsets.push(cpurend.rpp);
-        for i in 0..RPP_mult {
+
+        let rpp_multiples = {
+            if snapcount > 0 {
+                SNAP_RPP_mult
+            } else {
+                RPP_mult
+            }
+        };
+        
+
+        for i in 0..rpp_multiples {
             rppsets.push(RPP_buffer);
             tempsets.push(
                 set3pool
@@ -1311,7 +1359,7 @@ void main() {
 
         let mut command_buffer_build =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-            .unwrap();
+                .unwrap();
 
         while rppsets.len() > 0 {
             let rpp = rppsets.pop().unwrap();
@@ -1330,7 +1378,7 @@ void main() {
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP_buffer as u32],
                     compute_pipeline.clone(),
                     (sets[image_num].clone()),
-                    gen_push_const(campos, right, up, forward, framenum),
+                    gen_push_const(campos, right, down, forward, framenum),
                 )
                 .unwrap()
                 .dispatch(
