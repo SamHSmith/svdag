@@ -8,6 +8,7 @@ mod tests {
 
 pub mod render;
 
+pub mod dense;
 
 #[derive(Copy, Clone)]
 pub struct VoxelTree {
@@ -62,6 +63,17 @@ pub struct VoxelNode {
 }
 
 impl VoxelNode {
+
+    pub fn empty() -> Self {
+        VoxelNode{
+            childmask : 0,
+            flags : 0,
+            colour : [155; 3],
+            emission : 255,
+            metalness : 0,
+            roughness : 255,
+        }
+    }
 
     pub fn put_child(&mut self, childindex: u8, childptr: u32) {
         let child: u8 = 1 << childindex;
