@@ -7,10 +7,10 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: usize = 1;
-const RPP_buffer: usize = 10;
+const RPP_buffer: usize = 20;
 
-const SNAP_RPP_mult: usize = 100;
-const SNAP_LENGTH : usize = 10;
+const SNAP_RPP_mult: usize = 50;
+const SNAP_LENGTH: usize = 10;
 
 use lib::*;
 
@@ -1167,6 +1167,7 @@ void main() {
 
     use std::time::Instant;
 
+    let mut snapframenum: usize = 0;
     let mut framenum: u32 = 0;
     let mut framecounter: u32 = 0;
     let mut lastframetimeprintout = Instant::now();
@@ -1181,6 +1182,14 @@ void main() {
         Some(queue.family()),
     )
     .unwrap();
+
+    let buf = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
+    )
+    .expect("failed to create buffer");
 
     while !window.window.should_close() {
         window.poll();
@@ -1260,9 +1269,13 @@ void main() {
 
         if snapcount > 0 {
             snapcount -= 1;
+            snapframenum += 1;
         } else {
             if window.window.get_key(glfw::Key::O) == glfw::Action::Press {
                 snapcount = SNAP_LENGTH;
+                snapframenum = 0;
+                snaptime = Utc::now();
+                std::fs::create_dir_all(snaptime.to_rfc3339());
             }
         }
 
@@ -1342,7 +1355,6 @@ void main() {
                 RPP_mult
             }
         };
-        
 
         for i in 0..rpp_multiples {
             rppsets.push(RPP_buffer);
@@ -1411,7 +1423,7 @@ void main() {
             sofar_rpp += rpp;
             framenum += 1;
         }
-        let command_buffer = command_buffer_build
+        command_buffer_build = command_buffer_build
             .dispatch(
                 [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                 compute_pipeline4.clone(),
@@ -1457,7 +1469,15 @@ void main() {
             // subpasses we could have called `next_inline` (or `next_secondary`) to jump to the
             // next subpass.
             .end_render_pass()
-            .unwrap()
+            .unwrap();
+
+        if snapcount > 0 {
+            command_buffer_build = command_buffer_build
+                .copy_image_to_buffer(outimages[image_num].clone(), buf.clone())
+                .unwrap();
+        }
+
+        let command_buffer = command_buffer_build
             // Finish building the command buffer by calling `build`.
             .build()
             .unwrap();
@@ -1479,6 +1499,19 @@ void main() {
 
         match future {
             Ok(future) => {
+                if snapcount > 0 {
+                    future.wait(None).unwrap();
+
+                    let buffer_content = buf.read().unwrap();
+                    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(
+                        WIDTH as u32,
+                        HEIGHT as u32,
+                        &buffer_content[..],
+                    )
+                        .unwrap();
+
+                    image.save(format!("{}/{}.png", snaptime.to_rfc3339(), snapframenum)).unwrap();
+                }
                 previous_frame_end = Some(Box::new(future) as Box<_>);
             }
             Err(FlushError::OutOfDate) => {
