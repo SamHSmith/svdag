@@ -6,11 +6,11 @@ use lib::render::*;
 const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
-const RPP_mult: usize = 1;
-const RPP_buffer: usize = 20;
+const RPP_mult: u32 = 1;
+const RPP_buffer: usize = 10;
 
-const SNAP_RPP_mult: usize = 50;
-const SNAP_LENGTH: usize = 10;
+const SNAP_RPP_mult: u32 = 400;
+const SNAP_LENGTH: usize = 1;
 
 use lib::*;
 
@@ -580,7 +580,7 @@ layout(push_constant) uniform pushConstants {
 } pc;
 
 float rand(vec2 co){
-    return texture(noise, co * 1.1).x;
+    return texture(noise, co).x;
 }
 float rand2(vec2 co, uint x, uint y, uint maxx, uint maxy){
     return rand(co) * rand(vec2(x,y) / vec2(maxx, maxy));
@@ -989,8 +989,8 @@ void main() {
     use vulkano::descriptor::descriptor_set::DescriptorSet;
     let _soft_repeat = Sampler::new(
         device.clone(),
-        Filter::Linear,
-        Filter::Linear,
+        Filter::Nearest,
+        Filter::Nearest,
         MipmapMode::Nearest,
         SamplerAddressMode::Repeat,
         SamplerAddressMode::Repeat,
@@ -1194,8 +1194,28 @@ void main() {
     while !window.window.should_close() {
         window.poll();
 
+        if snapcount > 0 {
+            snapcount -= 1;
+            snapframenum += 1;
+        } else {
+            if window.window.get_key(glfw::Key::O) == glfw::Action::Press {
+                snapcount = SNAP_LENGTH;
+                snapframenum = 0;
+                snaptime = Utc::now();
+                std::fs::create_dir_all(snaptime.to_rfc3339());
+            }
+        }
+
+        let rpp_multiples = {
+            if snapcount > 0 {
+                SNAP_RPP_mult
+            } else {
+                RPP_mult
+            }
+        };
+
         framenum += 1;
-        if framenum > 99 {
+        if framenum > 99 * rpp_multiples {
             framenum = 0;
         }
 
@@ -1267,18 +1287,6 @@ void main() {
         }
         camrot = new_vec(x, camrot.y, camrot.z);
 
-        if snapcount > 0 {
-            snapcount -= 1;
-            snapframenum += 1;
-        } else {
-            if window.window.get_key(glfw::Key::O) == glfw::Action::Press {
-                snapcount = SNAP_LENGTH;
-                snapframenum = 0;
-                snaptime = Utc::now();
-                std::fs::create_dir_all(snaptime.to_rfc3339());
-            }
-        }
-
         let right = get_rotation(camrot)
             * Vector3::<f64> {
                 x: 1.0,
@@ -1347,15 +1355,7 @@ void main() {
 
         let mut rppsets = Vec::new();
         //rppsets.push(cpurend.rpp);
-
-        let rpp_multiples = {
-            if snapcount > 0 {
-                SNAP_RPP_mult
-            } else {
-                RPP_mult
-            }
-        };
-
+        
         for i in 0..rpp_multiples {
             rppsets.push(RPP_buffer);
             tempsets.push(
@@ -1526,8 +1526,9 @@ void main() {
         framecounter += 1;
         if (Instant::now() - lastframetimeprintout).as_secs() > 5 {
             println!(
-                "Avg frame time: {}",
-                (Instant::now() - lastframetimeprintout).as_millis() as f64 / framecounter as f64
+                "Avg frame time: {}, Snap frames left: {}",
+                (Instant::now() - lastframetimeprintout).as_millis() as f64 / framecounter as f64,
+                snapcount,
             );
             framecounter = 0;
             lastframetimeprintout = Instant::now();
