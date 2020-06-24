@@ -6,12 +6,20 @@ use lib::render::*;
 const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
-const RPP_mult: usize = 1;
-const RPP_buffer : usize = 10;
+const RPP_mult: u32 = 1;
+const RPP_buffer: usize = 10;
+
+const SNAP_RPP_mult: u32 = 400;
+const SNAP_LENGTH: usize = 1;
 
 use lib::*;
 
 fn main() {
+    use chrono::prelude::*;
+
+    let mut snapcount = 1usize;
+    let mut snaptime = Utc::now();
+
     use image::ImageBuffer;
     use image::Rgba;
     use std::sync::Arc;
@@ -295,7 +303,11 @@ fn main() {
         device.clone(),
         BufferUsage::transfer_source(),
         false,
-        blue_noise_src.as_rgba8().unwrap().pixels().map(|x| {((x[0] as u32 + x[1] as u32  + x[2] as u32) / 3) as u8}),
+        blue_noise_src
+            .as_rgba8()
+            .unwrap()
+            .pixels()
+            .map(|x| ((x[0] as u32 + x[1] as u32 + x[2] as u32) / 3) as u8),
     )
     .unwrap();
 
@@ -568,7 +580,7 @@ layout(push_constant) uniform pushConstants {
 } pc;
 
 float rand(vec2 co){
-    return texture(noise, co * 1.1).x;
+    return texture(noise, co).x;
 }
 float rand2(vec2 co, uint x, uint y, uint maxx, uint maxy){
     return rand(co) * rand(vec2(x,y) / vec2(maxx, maxy));
@@ -977,8 +989,8 @@ void main() {
     use vulkano::descriptor::descriptor_set::DescriptorSet;
     let _soft_repeat = Sampler::new(
         device.clone(),
-        Filter::Linear,
-        Filter::Linear,
+        Filter::Nearest,
+        Filter::Nearest,
         MipmapMode::Nearest,
         SamplerAddressMode::Repeat,
         SamplerAddressMode::Repeat,
@@ -1155,6 +1167,7 @@ void main() {
 
     use std::time::Instant;
 
+    let mut snapframenum: usize = 0;
     let mut framenum: u32 = 0;
     let mut framecounter: u32 = 0;
     let mut lastframetimeprintout = Instant::now();
@@ -1170,11 +1183,39 @@ void main() {
     )
     .unwrap();
 
+    let buf = CpuAccessibleBuffer::from_iter(
+        device.clone(),
+        BufferUsage::all(),
+        false,
+        (0..WIDTH * HEIGHT * 4).map(|_| 0u8),
+    )
+    .expect("failed to create buffer");
+
     while !window.window.should_close() {
         window.poll();
 
+        if snapcount > 0 {
+            snapcount -= 1;
+            snapframenum += 1;
+        } else {
+            if window.window.get_key(glfw::Key::O) == glfw::Action::Press {
+                snapcount = SNAP_LENGTH;
+                snapframenum = 0;
+                snaptime = Utc::now();
+                std::fs::create_dir_all(snaptime.to_rfc3339());
+            }
+        }
+
+        let rpp_multiples = {
+            if snapcount > 0 {
+                SNAP_RPP_mult
+            } else {
+                RPP_mult
+            }
+        };
+
         framenum += 1;
-        if framenum > 99 {
+        if framenum > 99 * rpp_multiples {
             framenum = 0;
         }
 
@@ -1233,7 +1274,7 @@ void main() {
             recreate_swapchain = true;
         }
 
-        // Specify the color to clear the framebuffer with i.e. blue
+        // Specify the color to clear the framebuffer with i.e. blue ish sorta really actually black
         let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
         let mouse_delta = window.get_mouse_delta();
@@ -1252,7 +1293,7 @@ void main() {
                 y: 0.0,
                 z: 0.0,
             };
-        let up = get_rotation(camrot)
+        let down = get_rotation(camrot)
             * Vector3::<f64> {
                 x: 0.0,
                 y: 1.0,
@@ -1264,7 +1305,25 @@ void main() {
                 y: 0.0,
                 z: 1.0,
             };
-        campos += forward / 1000.0;
+
+        if window.window.get_key(glfw::Key::W) == glfw::Action::Press {
+            campos += forward / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::S) == glfw::Action::Press {
+            campos -= forward / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::D) == glfw::Action::Press {
+            campos += right / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::A) == glfw::Action::Press {
+            campos -= right / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::Space) == glfw::Action::Press {
+            campos -= down / 1000.0;
+        }
+        if window.window.get_key(glfw::Key::LeftShift) == glfw::Action::Press {
+            campos += down / 1000.0;
+        }
 
         /*
         cpurend.scenes[0] = VoxelScene {
@@ -1285,18 +1344,19 @@ void main() {
          */
 
         let mut tempsets = Vec::new(); /*
-                                       tempsets.push(
-                                           set3pool
-                                               .next()
-                                               .add_image(cpuimages[image_num].clone())
-                                               .unwrap()
-                                               .build()
-                                               .unwrap(),
-    );*/
+                                                                          tempsets.push(
+                                                                              set3pool
+                                                                                  .next()
+                                                                                  .add_image(cpuimages[image_num].clone())
+                                                                                  .unwrap()
+                                                                                  .build()
+                                                                                  .unwrap(),
+                                       );*/
 
         let mut rppsets = Vec::new();
         //rppsets.push(cpurend.rpp);
-        for i in 0..RPP_mult {
+        
+        for i in 0..rpp_multiples {
             rppsets.push(RPP_buffer);
             tempsets.push(
                 set3pool
@@ -1311,7 +1371,7 @@ void main() {
 
         let mut command_buffer_build =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
-            .unwrap();
+                .unwrap();
 
         while rppsets.len() > 0 {
             let rpp = rppsets.pop().unwrap();
@@ -1330,7 +1390,7 @@ void main() {
                     [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP_buffer as u32],
                     compute_pipeline.clone(),
                     (sets[image_num].clone()),
-                    gen_push_const(campos, right, up, forward, framenum),
+                    gen_push_const(campos, right, down, forward, framenum),
                 )
                 .unwrap()
                 .dispatch(
@@ -1363,7 +1423,7 @@ void main() {
             sofar_rpp += rpp;
             framenum += 1;
         }
-        let command_buffer = command_buffer_build
+        command_buffer_build = command_buffer_build
             .dispatch(
                 [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                 compute_pipeline4.clone(),
@@ -1409,7 +1469,15 @@ void main() {
             // subpasses we could have called `next_inline` (or `next_secondary`) to jump to the
             // next subpass.
             .end_render_pass()
-            .unwrap()
+            .unwrap();
+
+        if snapcount > 0 {
+            command_buffer_build = command_buffer_build
+                .copy_image_to_buffer(outimages[image_num].clone(), buf.clone())
+                .unwrap();
+        }
+
+        let command_buffer = command_buffer_build
             // Finish building the command buffer by calling `build`.
             .build()
             .unwrap();
@@ -1431,6 +1499,19 @@ void main() {
 
         match future {
             Ok(future) => {
+                if snapcount > 0 {
+                    future.wait(None).unwrap();
+
+                    let buffer_content = buf.read().unwrap();
+                    let image = ImageBuffer::<Rgba<u8>, _>::from_raw(
+                        WIDTH as u32,
+                        HEIGHT as u32,
+                        &buffer_content[..],
+                    )
+                        .unwrap();
+
+                    image.save(format!("{}/{}.png", snaptime.to_rfc3339(), snapframenum)).unwrap();
+                }
                 previous_frame_end = Some(Box::new(future) as Box<_>);
             }
             Err(FlushError::OutOfDate) => {
@@ -1445,8 +1526,9 @@ void main() {
         framecounter += 1;
         if (Instant::now() - lastframetimeprintout).as_secs() > 5 {
             println!(
-                "Avg frame time: {}",
-                (Instant::now() - lastframetimeprintout).as_millis() as f64 / framecounter as f64
+                "Avg frame time: {}, Snap frames left: {}",
+                (Instant::now() - lastframetimeprintout).as_millis() as f64 / framecounter as f64,
+                snapcount,
             );
             framecounter = 0;
             lastframetimeprintout = Instant::now();
