@@ -14,6 +14,7 @@ pub mod dense;
 pub struct VoxelTree {
     pub base: *mut u32,
     allocator: *mut u32,
+    layout: std::alloc::Layout,
 }
 
 impl<'a> VoxelTree {
@@ -40,6 +41,13 @@ impl<'a> VoxelTree {
     pub fn allocate_and_get_node(&mut self) -> &'a mut VoxelNode {
         let ptr = self.allocate_node();
         self.get_node(ptr)
+    }
+
+    pub fn free(self) {
+        unsafe {
+            println!("Hello");
+                std::alloc::dealloc(self.base as *mut u8, self.layout);
+        }
     }
 }
 
@@ -81,7 +89,7 @@ impl VoxelNode {
         unsafe {
             if (self.childmask & child) != 0 {
                 *((&mut self.childmask as *mut u8 as *mut u32)
-                    .offset(8 + (childindex as isize * 4))) = childptr;
+                    .offset(8 + (childindex as isize * 4))) = childptr; // dis bad
             } else {
                 let mut select: u8 = 1;
                 let mut ptr: *mut u32 = &self.childmask as *const u8 as *mut u32;
@@ -222,10 +230,23 @@ fn lin_to_srgb(c: f64) -> u8 {
     return (varR * 255.0) as u8;
 }
 
+pub fn clamp<F>(value : F, min : F, max : F) -> F
+where F : Float {
+    if value < min {
+        return min;
+    }
+    if value > max {
+        return max;
+    }
+    value
+}
+
 pub fn allocate(size: usize) -> VoxelTree {
     unsafe {
+        let layout = std::alloc::Layout::from_size_align(size, 4).unwrap();
+
         let base: *mut u32 =
-            std::alloc::alloc(std::alloc::Layout::from_size_align(size, 4).unwrap())
+            std::alloc::alloc(layout)
             as *mut u32;
 
         let allocator = base as *mut u32;
@@ -234,6 +255,7 @@ pub fn allocate(size: usize) -> VoxelTree {
         VoxelTree {
             base,
             allocator,
+            layout,
         }
     }
 }

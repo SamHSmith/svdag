@@ -7,9 +7,9 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: u32 = 1;
-const RPP_buffer: usize = 10;
+const RPP_buffer: usize = 5;
 
-const SNAP_RPP_mult: u32 = 400;
+const SNAP_RPP_mult: u32 = 40;
 const SNAP_LENGTH: usize = 1;
 
 use lib::*;
@@ -172,20 +172,39 @@ fn main() {
     node2.get_child(tree, 6).colour = [50, 50, 50];
     node2.get_child(tree, 6).roughness = 249;
     node2.put_child(5, tree.allocate_node());
-    node2.get_child(tree, 5).put_child(6, tree.allocate_node());
-    node2.get_child(tree, 5).get_child(tree, 6).flags = 1;
-    node2.get_child(tree, 5).get_child(tree, 6).colour = [255, 147, 41];
-    node2.get_child(tree, 5).get_child(tree, 6).emission = 255;
-    node2.get_child(tree, 5).get_child(tree, 6).roughness = 255;
+    node2.get_child(tree, 5).put_child(2, tree.allocate_node());
+    node2.get_child(tree, 5).get_child(tree, 2).flags = 1;
+    node2.get_child(tree, 5).get_child(tree, 2).colour = [255, 147, 41];
+    node2.get_child(tree, 5).get_child(tree, 2).emission = 255;
+    node2.get_child(tree, 5).get_child(tree, 2).roughness = 255;
     node2.put_child(7, tree.allocate_node());
     node2.get_child(tree, 7).flags = 1;
     node2.get_child(tree, 7).colour = [20, 50, 180];
     node2.get_child(tree, 7).roughness = 240;
 
-    //node.flags =1;
-    node.colour = [255, 183, 235];
+    //test code
+    use crate::dense::*;
+    let mut dense = DenseVoxelData::new(2);
+    //dense.access_mut(0, 0, 0).flags = 1;
+    dense.access_mut(0, 0, 0).colour = [255, 147, 41];
+    dense.access_mut(0, 0, 0).emission = 255;
+    dense.access_mut(0, 0, 0).roughness = 255;
+    dense.access_mut(0, 2, 3).flags = 1;
+    dense.access_mut(0, 2, 3).colour = [100, 50, 200];
+    dense.access_mut(0, 2, 3).emission = 255;
+    dense.access_mut(0, 2, 3).roughness = 150;
 
-    let mut campos = new_vec(-0.2, -0.4, -0.7);
+    for x in 0..4 {
+        for z in 0..4 {
+            dense.access_mut(x, 3, z).flags=1;
+            dense.access_mut(x, 3, z).emission=0;
+            dense.access_mut(x, 3, z).roughness=230;
+        }
+    }
+
+    let treeother = dense.to_sparse();
+
+    let mut campos = new_vec(0.0, 0.0, 0.0);
     let mut camrot = new_vec(-10.0, 40.0, 0.0);
     fn get_rotation(camrot: Vector3<f64>) -> Quaternion<f64> {
         use cgmath::Rotation3;
@@ -214,7 +233,7 @@ fn main() {
             device.clone(),
             bufusage,
             false,
-            (0..500)
+            (0..1000)
                 .into_iter()
                 .map(|i| *(tree.base as *const VoxelNode as *const u32).offset(i)),
         )
@@ -562,7 +581,7 @@ fn main() {
 #define FLT_MIN 1.175494351e-38
 #define DBL_MAX 1.7976931348623158e+308
 #define DBL_MIN 2.2250738585072014e-308
-#define VBUFFER_SIZE 500
+#define VBUFFER_SIZE 1000
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16) uniform writeonly image3D img;
@@ -821,7 +840,8 @@ void main() {
 
         if(length(groups[0].hitnormal) < EPSILON){
 imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(0.0,0.0,0.0,1.0));
-return; }
+return;
+}
 
         for(uint g = 1; g < RBC; g++){
             float roughness = get_voxel_roughness(groups[g-1].node);
@@ -839,6 +859,7 @@ return; }
         }
 
         colour = colours[0];
+
 
     float biggest= 0.0;
     biggest = max(biggest, colour.x);
@@ -1183,7 +1204,8 @@ void main() {
     )
     .unwrap();
 
-    let buf = CpuAccessibleBuffer::from_iter(
+    let buf = CpuAccessibleBuffer::from_iter
+        (
         device.clone(),
         BufferUsage::all(),
         false,
@@ -1355,7 +1377,7 @@ void main() {
 
         let mut rppsets = Vec::new();
         //rppsets.push(cpurend.rpp);
-        
+
         for i in 0..rpp_multiples {
             rppsets.push(RPP_buffer);
             tempsets.push(
@@ -1508,9 +1530,11 @@ void main() {
                         HEIGHT as u32,
                         &buffer_content[..],
                     )
-                        .unwrap();
+                    .unwrap();
 
-                    image.save(format!("{}/{}.png", snaptime.to_rfc3339(), snapframenum)).unwrap();
+                    image
+                        .save(format!("{}/{}.png", snaptime.to_rfc3339(), snapframenum))
+                        .unwrap();
                 }
                 previous_frame_end = Some(Box::new(future) as Box<_>);
             }
