@@ -7,9 +7,9 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: u32 = 1;
-const RPP_buffer: usize = 5;
+const RPP_buffer: usize = 8;
 
-const SNAP_RPP_mult: u32 = 40;
+const SNAP_RPP_mult: u32 = 350;
 const SNAP_LENGTH: usize = 1;
 
 use lib::*;
@@ -615,7 +615,12 @@ float fresnel(vec3 v, vec3 normal){
 }
 
 vec3 rand_dir_from_surf(vec3 normal, vec2 co){
-    vec3 v = vec3(rand(co), rand(co * 2), rand(co *3));
+    float r1 = rand(co);
+    float r2 = rand(vec2(co.x + co.y, r1));
+    float r3 = rand(vec2(r1,r2));
+    vec3 v = vec3(r1, r2, r3);
+    v *= 2.0;
+    v -= vec3(1.0);
 
     if(dot(v, normal) < 0.0) {
         v += (-2.0 * dot(v, normal) * normal);
@@ -846,7 +851,9 @@ return;
         for(uint g = 1; g < RBC; g++){
             float roughness = get_voxel_roughness(groups[g-1].node);
             float specular= round(float(rand2(vec2(rand(coords), rand(coords + vec2(0.8 * pc.framenum / 10, 1.9 * gl_GlobalInvocationID.z / imageSize(img).z))), gl_GlobalInvocationID.z, pc.framenum + 2 * g, imageSize(img).z, 102) > (0.5 * (1.0 - get_voxel_metalness(groups[g-1].node)))));
+
             vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, vec2(rand2(vec2(rand(coords), rand(coords + vec2(1.35 * pc.framenum / 10, 2.7 * gl_GlobalInvocationID.z / imageSize(img).z))), gl_GlobalInvocationID.z, pc.framenum + 3 * g, imageSize(img).z, 103), rand2(vec2(rand(coords), rand(coords + vec2(0.2 * pc.framenum / 10, 3.1 * gl_GlobalInvocationID.z / imageSize(img).z))), gl_GlobalInvocationID.z, pc.framenum + 4 * g, imageSize(img).z, 104)));
+
             vec3 specdir=(roughness * newdir) + ((1.0 - roughness) * reflectvec(groups[g-1].raydir, groups[g-1].hitnormal));
             groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), normalize((newdir * (1.0-specular)) + (specdir * specular)), 1, specular);
         }
