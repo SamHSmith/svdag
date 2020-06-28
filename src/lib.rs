@@ -59,7 +59,7 @@ unsafe impl Sync for VoxelTree {
     
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Hash)]
 pub struct VoxelNode {
     pub childmask: u8,
     pub flags: u8,
@@ -88,8 +88,9 @@ impl VoxelNode {
         debug_assert_ne!(child, 0);
         unsafe {
             if (self.childmask & child) != 0 {
-                *((&mut self.childmask as *mut u8 as *mut u32)
-                    .offset(8 + (childindex as isize * 4))) = childptr; // dis bad
+                let ptr = ((&mut self.childmask as *mut u8 as *mut u32)
+                           .offset(2 + (childindex as isize)));
+                *ptr = childptr; 
             } else {
                 let mut select: u8 = 1;
                 let mut ptr: *mut u32 = &self.childmask as *const u8 as *mut u32;

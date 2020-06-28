@@ -1,6 +1,6 @@
 use crate::allocate;
-use crate::oct_byte_to_vec;
 use crate::clamp;
+use crate::oct_byte_to_vec;
 use crate::VoxelNode;
 use crate::VoxelTree;
 use cgmath::Vector3;
@@ -42,7 +42,10 @@ impl DenseVoxelData {
             .index(x + (y * self.size) + (z * (self.size * self.size)))
     }
 
-    pub fn to_sparse(&self) -> VoxelTree {
+    pub fn to_sparse(&mut self) -> VoxelTree {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
         let mut count = 0;
         let mut current = 1;
 
@@ -57,9 +60,31 @@ impl DenseVoxelData {
         root.flags = 0;
         root.childmask = 0;
 
-        let mut levels: Vec<Vec<u32>> = Vec::new();
+        #[derive(Copy, Clone)]
+        struct SparseNode {
+            node: u32,
+            child_hashes: [u64; 8],
+        }
+        impl SparseNode {
+            fn hash(&self, tree : VoxelTree) -> u64{
+                let mut hasher = DefaultHasher::new();
+                tree.get_node(self.node).hash(&mut hasher);
+                self.child_hashes.hash(&mut hasher);
+                hasher.finish()
+            }
+        }
 
-        levels.push(vec![rootid]);
+        struct SparseNodeCont {
+            sp: SparseNode,
+            parent_index: u32,
+            parent_child_index: u8,
+            hash: u64,
+        }
+
+        let mut levels: Vec<Vec<SparseNodeCont>> = Vec::new();
+
+        levels.push(Vec::new());
+        levels[0].reserve(1);
 
         for x in 1..self.depth {
             levels.push(Vec::new());
@@ -71,56 +96,97 @@ impl DenseVoxelData {
             level: usize,
             node: u32,
             tree: VoxelTree,
-            levels: &mut Vec<Vec<u32>>,
+            levels: &mut Vec<Vec<SparseNodeCont>>,
+            parent_index: u32,
+            parent_child_index: u8,
             size: usize,
             x: usize,
             y: usize,
             z: usize,
-        ) {
-            levels[level].push(node);
+        ) -> u64 {
             if level >= levels.len() - 1 {
-                println!("leaf {} {} {}, {}",x,y,z,s.access(x,y,z).emission);
-                *tree.get_node(node) = *(s.access(x, y, z));
-                tree.get_node(node).childmask = 0;
-                println!("{} {}",node, tree.get_node(node).emission);
-                return;
+                let ac = s.access(x, y, z);
+                if ac.flags & 1 == 1 {
+                    *tree.get_node(node) = *ac;
+                    tree.get_node(node).childmask = 0;
+                    let sp = SparseNode {
+                        node,
+                        child_hashes: [0; 8],
+                    };
+                    let hash = sp.hash(tree);
+                    levels[level].push(SparseNodeCont {
+                        sp,
+                        parent_index,
+                        parent_child_index,
+                        hash,
+                    });
+                    return hash;
+                }
+                return 0;
             }
 
             tree.get_node(node).flags = 0;
             tree.get_node(node).childmask = 0;
+            let mut child_hashes = [0u64; 8];
+
+            let levelindex = levels[level].len() as u32;
+
             for i in 0..8 {
                 let childptr = tree.allocate_node();
-                println!("{} :: {}", node, childptr);
                 tree.get_node(node).put_child(i, childptr);
 
                 let mut loc: Vector3<f64> = oct_byte_to_vec(1u8 << i);
                 loc *= 2.0;
 
-                do_child(
+                child_hashes[i as usize] = do_child(
                     s,
                     level + 1,
                     childptr,
                     tree,
                     levels,
+                    levelindex,
+                    i,
                     size / 2,
-                    (x as usize + (clamp(loc.x,0.0, 1.0) as usize * size as usize / 2)) as usize,
-                    (y as usize + (clamp(loc.y,0.0, 1.0) as usize * size as usize / 2)) as usize,
-                     (z as usize + (clamp(loc.z,0.0, 1.0) as usize * size as usize / 2)) as usize,
+                    (x as usize + (clamp(loc.x, 0.0, 1.0) as usize * size as usize / 2)) as usize,
+                    (y as usize + (clamp(loc.y, 0.0, 1.0) as usize * size as usize / 2)) as usize,
+                    (z as usize + (clamp(loc.z, 0.0, 1.0) as usize * size as usize / 2)) as usize,
                 );
             }
+
+            let sp = SparseNode { node, child_hashes };
+            let hash = sp.hash(tree);
+            levels[level].push(SparseNodeCont {
+                sp,
+                parent_index,
+                parent_child_index,
+                hash,
+            });
+            return hash;
         }
 
-        do_child(
-            &self,
-            0,
-            rootid,
-            tree,
-            &mut levels,
-            self.size,
-            0,0,0
-        );
+        do_child(&self, 0, rootid, tree, &mut levels, 0, 0, self.size, 0, 0, 0);
 
-        
+        let levelslen = levels.len();
+        for leveli in (1..levels.len()).rev() {
+
+            levels[leveli].sort_by(|a, b| a.hash.cmp(&b.hash));
+
+            let mut last_hash = levels[leveli][0].hash;
+            for i in 1..levels[leveli].len(){
+                if levels[leveli][i].hash == last_hash {
+                    let parent_index = levels[leveli][i].parent_index;
+                    let parent_child_index = levels[leveli][i].parent_child_index;
+
+                    let n :&mut VoxelNode= tree.get_node(levels[leveli-1][parent_index as usize].sp.node);
+
+                    n.put_child(parent_child_index, levels[leveli][i-1].sp.node);
+                }
+                last_hash=levels[leveli][i].hash;
+            }
+
+        }
+
+        println!(" Child count : {}", levels[3].len());
 
         tree
     }

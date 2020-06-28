@@ -7,9 +7,9 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: u32 = 1;
-const RPP_buffer: usize = 8;
+const RPP_buffer: usize = 15;
 
-const SNAP_RPP_mult: u32 = 350;
+const SNAP_RPP_mult: u32 = 250;
 const SNAP_LENGTH: usize = 1;
 
 use lib::*;
@@ -184,21 +184,21 @@ fn main() {
 
     //test code
     use crate::dense::*;
-    let mut dense = DenseVoxelData::new(2);
-    //dense.access_mut(0, 0, 0).flags = 1;
-    dense.access_mut(0, 0, 0).colour = [255, 147, 41];
-    dense.access_mut(0, 0, 0).emission = 255;
-    dense.access_mut(0, 0, 0).roughness = 255;
-    dense.access_mut(0, 2, 3).flags = 1;
-    dense.access_mut(0, 2, 3).colour = [100, 50, 200];
-    dense.access_mut(0, 2, 3).emission = 255;
-    dense.access_mut(0, 2, 3).roughness = 150;
+    let mut dense = DenseVoxelData::new(3);
+    dense.access_mut(0, 6, 7).flags = 1;
+    dense.access_mut(0, 6, 7).colour = [50, 50, 250];
+    dense.access_mut(0, 6, 7).emission = 255;
+    dense.access_mut(0, 6, 7).roughness = 150;
+    dense.access_mut(7, 6, 0).flags = 1;
+    dense.access_mut(7, 6, 0).colour = [250, 50, 50];
+    dense.access_mut(7, 6, 0).emission = 255;
+    dense.access_mut(7, 6, 0).roughness = 150;
 
-    for x in 0..4 {
-        for z in 0..4 {
-            dense.access_mut(x, 3, z).flags=1;
-            dense.access_mut(x, 3, z).emission=0;
-            dense.access_mut(x, 3, z).roughness=230;
+    for x in 0..8 {
+        for z in 0..8 {
+            dense.access_mut(x, 7, z).flags=1;
+            dense.access_mut(x, 7, z).emission=0;
+            dense.access_mut(x, 7, z).roughness=230;
         }
     }
 
@@ -233,9 +233,9 @@ fn main() {
             device.clone(),
             bufusage,
             false,
-            (0..1000)
+            (0..10000)
                 .into_iter()
-                .map(|i| *(tree.base as *const VoxelNode as *const u32).offset(i)),
+                .map(|i| *(treeother.base as *const VoxelNode as *const u32).offset(i)),
         )
         .unwrap()
     };
@@ -581,7 +581,7 @@ fn main() {
 #define FLT_MIN 1.175494351e-38
 #define DBL_MAX 1.7976931348623158e+308
 #define DBL_MIN 2.2250738585072014e-308
-#define VBUFFER_SIZE 1000
+#define VBUFFER_SIZE 10000
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16) uniform writeonly image3D img;
@@ -1354,6 +1354,11 @@ void main() {
             campos += down / 1000.0;
         }
 
+        if window.window.get_key(glfw::Key::B) == glfw::Action::Press {
+            campos = new_vec(-0.23391431784279354, -0.3425462427036379, -0.23932050565719531);
+            camrot = new_vec(-72.5, 403.0, 0.0);
+        }
+
         /*
         cpurend.scenes[0] = VoxelScene {
             tree: tree,
@@ -1557,9 +1562,15 @@ void main() {
         framecounter += 1;
         if (Instant::now() - lastframetimeprintout).as_secs() > 5 {
             println!(
-                "Avg frame time: {}, Snap frames left: {}",
+                "Avg frame time: {}, Snap frames left: {}, Camera Position: {}, {}, {}, Camera Rotation: {}, {}, {}",
                 (Instant::now() - lastframetimeprintout).as_millis() as f64 / framecounter as f64,
                 snapcount,
+                campos.x,
+                campos.y,
+                campos.z,
+                camrot.x,
+                camrot.y,
+                camrot.z,
             );
             framecounter = 0;
             lastframetimeprintout = Instant::now();
