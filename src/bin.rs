@@ -9,7 +9,7 @@ const HEIGHT: usize = 480;
 const RPP_mult: u32 = 1;
 const RPP_buffer: usize = 15;
 
-const SNAP_RPP_mult: u32 = 250;
+const SNAP_RPP_mult: u32 = 70;
 const SNAP_LENGTH: usize = 1;
 
 use lib::*;

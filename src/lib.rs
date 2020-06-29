@@ -45,8 +45,21 @@ impl<'a> VoxelTree {
 
     pub fn free(self) {
         unsafe {
-            println!("Hello");
                 std::alloc::dealloc(self.base as *mut u8, self.layout);
+        }
+    }
+
+    pub fn mem_size(&self) -> usize {
+        unsafe {*self.allocator as usize * 4}
+    }
+
+    pub fn reallocate_to_fit(&mut self){
+        self.reallocate(self.mem_size());
+    }
+
+    pub fn reallocate(&mut self, new_size : usize) {
+        unsafe {
+            self.base = std::alloc::realloc(self.base as *mut u8, self.layout, new_size) as *mut u32;
         }
     }
 }

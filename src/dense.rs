@@ -54,7 +54,7 @@ impl DenseVoxelData {
             current *= 2;
         }
         let mut tree = allocate((count * 10 + 1) * 4); //10 is the size per node in uints. at the time of writing
-        println!("{}", (count * 10 + 1) * 4);
+        
         let rootid = tree.allocate_node();
         let root: &mut VoxelNode = tree.get_node(rootid);
         root.flags = 0;
@@ -178,8 +178,7 @@ impl DenseVoxelData {
             0,
         );
 
-        let tree2 = allocate((count * 10 + 1) * 4);
-        println!("tree2 size {}", (count * 10 + 1) * 4);
+        let mut tree2 = allocate((count * 10 + 1) * 4);
 
         let rootid2 = tree2.allocate_node();
 
@@ -207,12 +206,11 @@ impl DenseVoxelData {
                     last_hash = levels[leveli][i].hash;
                     replace = levels[leveli][i].sp.node;
                     hm.insert(replace, (tree2.allocate_node(),false));
-                    println!("{} replace with {}", replace, hm.get(&replace).unwrap().0);
                 }
             }
         }
 
-        fn look_node(node: u32, tree: VoxelTree, tree_old: VoxelTree, hm : &mut HashMap<u32,(u32,bool)>,ct: &mut usize) -> u32 {
+        fn look_node(node: u32, tree: VoxelTree, tree_old: VoxelTree, hm : &mut HashMap<u32,(u32,bool)>) -> u32 {
             let (new_node_ptr, d) = match hm.get(&node) {
                 Some(x) => {
                     *x
@@ -226,7 +224,7 @@ impl DenseVoxelData {
             if d {
                 return new_node_ptr;
             }
-            *ct += 1;
+
             let node_ref = tree_old.get_node(node);
             let ptr = tree.get_node(new_node_ptr);
             *ptr = *node_ref;
@@ -237,28 +235,26 @@ impl DenseVoxelData {
             for x in 0..8 {
                 let child = 1 << x;
                 if node_ref.childmask & child != 0 {
-                    let child_node = look_node(node_ref.get_child_ptr(x), tree, tree_old, hm, ct);
+                    let child_node = look_node(node_ref.get_child_ptr(x), tree, tree_old, hm);
                     ptr.put_child(x, child_node);
                 }
             }
             new_node_ptr
         }
-        let mut counter = 0;
 
         let node_ref = tree.get_node(rootid);
         let ptr = tree2.get_node(rootid2);
         for x in 0..8 {
             let child = 1 << x;
             if node_ref.childmask & child != 0 {
-                let child_node = look_node(node_ref.get_child_ptr(x), tree2, tree, &mut hm, &mut counter);
+                let child_node = look_node(node_ref.get_child_ptr(x), tree2, tree, &mut hm);
                 ptr.put_child(x, child_node);
             }
         }
 
-        println!("{}", (counter * 10 + 1) * 4);
         tree.free();
 
-        //tree.reallocate((counter * 10 + 1) * 4); coming soon
+        tree2.reallocate_to_fit();
 
         tree2
     }
