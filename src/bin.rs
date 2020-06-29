@@ -583,7 +583,7 @@ fn main() {
 #define DBL_MIN 2.2250738585072014e-308
 #define VBUFFER_SIZE 10000
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 layout(set = 0, binding = 0, rgba16) uniform writeonly image3D img;
 layout(set = 0, binding = 1) uniform sampler2D noise;
 layout(set = 0, binding = 2) buffer VoxelBuffer {
@@ -848,7 +848,7 @@ return;
             float roughness = get_voxel_roughness(groups[g-1].node);
             float specular= round(float(rand2(coords * g, gl_GlobalInvocationID.z, pc.framenum + 2 * g, imageSize(img).z, 102).w > (0.5 * (1.0 - get_voxel_metalness(groups[g-1].node)))));
 
-            vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, rand(rand2(rand(coords).xz, gl_GlobalInvocationID.z, pc.framenum + 3 * g, imageSize(img).z, 103).xw).xy);
+            vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, rand2(rand(randcoord).xz, gl_GlobalInvocationID.z, pc.framenum + 3 * g, imageSize(img).z, 103).yw);
 
             vec3 specdir=(roughness * newdir) + ((1.0 - roughness) * reflectvec(groups[g-1].raydir, groups[g-1].hitnormal));
             groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), normalize((newdir * (1.0-specular)) + (specdir * specular)), 1, specular);
@@ -1417,7 +1417,7 @@ void main() {
                 )
                 .unwrap()
                 .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, RPP_buffer as u32],
+                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, (RPP_buffer / 8) as u32],
                     compute_pipeline.clone(),
                     (sets[image_num].clone()),
                     gen_push_const(campos, right, down, forward, framenum),
