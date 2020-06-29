@@ -54,7 +54,7 @@ impl DenseVoxelData {
             current *= 2;
         }
         let mut tree = allocate((count * 10 + 1) * 4); //10 is the size per node in uints. at the time of writing
-        println!("{}", (count * 10 + 1));
+        println!("{}", (count * 10 + 1) * 4);
         let rootid = tree.allocate_node();
         let root: &mut VoxelNode = tree.get_node(rootid);
         root.flags = 0;
@@ -66,7 +66,7 @@ impl DenseVoxelData {
             child_hashes: [u64; 8],
         }
         impl SparseNode {
-            fn hash(&self, tree : VoxelTree) -> u64{
+            fn hash(&self, tree: VoxelTree) -> u64 {
                 let mut hasher = DefaultHasher::new();
                 tree.get_node(self.node).hash(&mut hasher);
                 self.child_hashes.hash(&mut hasher);
@@ -164,30 +164,102 @@ impl DenseVoxelData {
             return hash;
         }
 
-        do_child(&self, 0, rootid, tree, &mut levels, 0, 0, self.size, 0, 0, 0);
+        do_child(
+            &self,
+            0,
+            rootid,
+            tree,
+            &mut levels,
+            0,
+            0,
+            self.size,
+            0,
+            0,
+            0,
+        );
+
+        let tree2 = allocate((count * 10 + 1) * 4);
+        println!("tree2 size {}", (count * 10 + 1) * 4);
+
+        let rootid2 = tree2.allocate_node();
+
+        use std::collections::HashMap;
+
+        let mut hm : HashMap<u32, (u32, bool)>= HashMap::new();
 
         let levelslen = levels.len();
         for leveli in (1..levels.len()).rev() {
-
             levels[leveli].sort_by(|a, b| a.hash.cmp(&b.hash));
 
             let mut last_hash = levels[leveli][0].hash;
-            for i in 1..levels[leveli].len(){
+            let mut replace = levels[leveli][0].sp.node;
+            for i in 1..levels[leveli].len() {
                 if levels[leveli][i].hash == last_hash {
                     let parent_index = levels[leveli][i].parent_index;
                     let parent_child_index = levels[leveli][i].parent_child_index;
 
-                    let n :&mut VoxelNode= tree.get_node(levels[leveli-1][parent_index as usize].sp.node);
+                    let n: &mut VoxelNode =
+                        tree.get_node(levels[leveli - 1][parent_index as usize].sp.node);
 
-                    n.put_child(parent_child_index, levels[leveli][i-1].sp.node);
+                    n.put_child(parent_child_index, replace);
+
+                } else {
+                    last_hash = levels[leveli][i].hash;
+                    replace = levels[leveli][i].sp.node;
+                    hm.insert(replace, (tree2.allocate_node(),false));
+                    println!("{} replace with {}", replace, hm.get(&replace).unwrap().0);
                 }
-                last_hash=levels[leveli][i].hash;
             }
-
         }
 
-        println!(" Child count : {}", levels[3].len());
+        fn look_node(node: u32, tree: VoxelTree, tree_old: VoxelTree, hm : &mut HashMap<u32,(u32,bool)>,ct: &mut usize) -> u32 {
+            let (new_node_ptr, d) = match hm.get(&node) {
+                Some(x) => {
+                    *x
+                },
+                None => {
+                    let allocation = tree.allocate_node();
+                    hm.insert(node, (allocation, false));
+                    (allocation,false)
+                }
+            };
+            if d {
+                return new_node_ptr;
+            }
+            *ct += 1;
+            let node_ref = tree_old.get_node(node);
+            let ptr = tree.get_node(new_node_ptr);
+            *ptr = *node_ref;
+            ptr.childmask = 0;
 
-        tree
+            hm.insert(node, (new_node_ptr, true));
+
+            for x in 0..8 {
+                let child = 1 << x;
+                if node_ref.childmask & child != 0 {
+                    let child_node = look_node(node_ref.get_child_ptr(x), tree, tree_old, hm, ct);
+                    ptr.put_child(x, child_node);
+                }
+            }
+            new_node_ptr
+        }
+        let mut counter = 0;
+
+        let node_ref = tree.get_node(rootid);
+        let ptr = tree2.get_node(rootid2);
+        for x in 0..8 {
+            let child = 1 << x;
+            if node_ref.childmask & child != 0 {
+                let child_node = look_node(node_ref.get_child_ptr(x), tree2, tree, &mut hm, &mut counter);
+                ptr.put_child(x, child_node);
+            }
+        }
+
+        println!("{}", (counter * 10 + 1) * 4);
+        tree.free();
+
+        //tree.reallocate((counter * 10 + 1) * 4); coming soon
+
+        tree2
     }
 }
