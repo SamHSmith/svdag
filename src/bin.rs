@@ -653,9 +653,29 @@ uint read_vbuffer(uint address){
 
 const float EPSILON = 0.0000002;
 
+float slabs(vec3 lb, vec3 rt, vec3 org, vec3 dirfrac) {
 
-bool inbox(vec3 pos, float size){
-    return (pos.x + EPSILON >= size * -0.5) && (pos.x - EPSILON <= size * 0.5) && (pos.y + EPSILON >= size * -0.5) && (pos.y - EPSILON <= size * 0.5) && (pos.z + EPSILON >= size * -0.5) && (pos.z - EPSILON <= size * 0.5);
+    float tx1 = (lb.x - org.x)*dirfrac.x;
+    float tx2 = (rt.x - org.x)*dirfrac.x;
+
+    float tmin = min(tx1, tx2);
+    float tmax = max(tx1, tx2);
+
+    float ty1 = (lb.y - org.y)*dirfrac.y;
+    float ty2 = (rt.y - org.y)*dirfrac.y;
+
+    tmin = max(tmin, min(ty1, ty2));
+    tmax = min(tmax, max(ty1, ty2));
+
+    float tz1 = (lb.z - org.z)*dirfrac.z;
+    float tz2 = (rt.z - org.z)*dirfrac.z;
+
+    tmin = max(tmin, min(tz1, tz2));
+    tmax = min(tmax, max(tz1, tz2));
+
+    float t = tmin * float(tmin > 0) + tmax * float(tmin <= 0);
+
+    return t * float(tmin <= tmax) * float(tmax > 0);
 }
 
 struct RayTarget{
@@ -665,44 +685,16 @@ struct RayTarget{
 };
 
 RayTarget cast_ray_v_box(vec3 start, vec3 dir, float size) {
-    float t1 = (size * -0.5 - start.x) / dir.x;
-    float t2 = (size * 0.5 - start.x) / dir.x;
+    vec3 p0 = vec3(-0.5) * size;
+    vec3 p1 = vec3(0.5) * size;
+    vec3 invRaydir = vec3(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
 
-    float t3 = (size * -0.5 - start.y) / dir.y;
-    float t4 = (size * 0.5 - start.y) / dir.y;
+    float t = slabs(p0,p1,start,invRaydir);
 
-    float t5 = (size * -0.5 - start.z) / dir.z;
-    float t6 = (size * 0.5 - start.z) / dir.z;
 
-    vec3 pos1 = start + dir * t1;
-    vec3 pos2 = start + dir * t2;
-    vec3 pos3 = start + dir * t3;
-    vec3 pos4 = start + dir * t4;
-    vec3 pos5 = start + dir * t5;
-    vec3 pos6 = start + dir * t6;
+    vec3 pos = start + dir * t;
 
-    float b1 = (1.0 - float(inbox(pos1, size) && t1 > 0)) * FLT_MAX;
-    float b2 = (1.0 - float(inbox(pos2, size) && t2 > 0)) * FLT_MAX;
-    float b3 = (1.0 - float(inbox(pos3, size) && t3 > 0)) * FLT_MAX;
-    float b4 = (1.0 - float(inbox(pos4, size) && t4 > 0)) * FLT_MAX;
-    float b5 = (1.0 - float(inbox(pos5, size) && t5 > 0)) * FLT_MAX;
-    float b6 = (1.0 - float(inbox(pos6, size) && t6 > 0)) * FLT_MAX;
-
-    b1 = max(b1, t1);
-    b2 = max(b2, t2);
-    b3 = max(b3, t3);
-    b4 = max(b4, t4);
-    b5 = max(b5, t5);
-    b6 = max(b6, t6);
-
-    float min = min(b1, min(b2, min(b3, min(b4, min(b5, b6)))));
-
-    if(abs(b1 - min) < EPSILON){return RayTarget(pos1, normalize(biggest_axis(pos1)), b1);}
-    if(abs(b2 - min) < EPSILON){return RayTarget(pos2, normalize(biggest_axis(pos2)), b2);}
-    if(abs(b3 - min) < EPSILON){return RayTarget(pos3, normalize(biggest_axis(pos3)), b3);}
-    if(abs(b4 - min) < EPSILON){return RayTarget(pos4, normalize(biggest_axis(pos4)), b4);}
-    if(abs(b5 - min) < EPSILON){return RayTarget(pos5, normalize(biggest_axis(pos5)), b5);}
-    if(abs(b6 - min) < EPSILON){return RayTarget(pos6, normalize(biggest_axis(pos6)), b6);}
+    return RayTarget(pos, normalize(biggest_axis(pos)), t);
 }
 
 uint get_voxel_childmask(uint ptr){
@@ -820,6 +812,7 @@ vec3 calculate_colour(RayResult t, vec3 nc, float ns){
 
     colour *= (1.0 - get_voxel_emission(t.node));
     colour += get_voxel_colour(t.node) * get_voxel_emission(t.node) * EMISSION;
+
     colour *= length(t.hitnormal);
 
     return colour;
