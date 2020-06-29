@@ -310,7 +310,7 @@ fn main() {
             width: blue_noise_src.as_rgba8().unwrap().width() as u32,
             height: blue_noise_src.as_rgba8().unwrap().height() as u32,
         },
-        format::R8Unorm,
+        format::R8G8B8A8Unorm,
         1,
         _usage,
         ImageLayout::TransferDstOptimal,
@@ -326,7 +326,7 @@ fn main() {
             .as_rgba8()
             .unwrap()
             .pixels()
-            .map(|x| ((x[0] as u32 + x[1] as u32 + x[2] as u32) / 3) as u8),
+            .map(|x| [x[0] as u8,x[1] as u8,x[2] as u8,x[3] as u8] as [u8; 4]),
     )
     .unwrap();
 
@@ -598,11 +598,11 @@ layout(push_constant) uniform pushConstants {
     uint framenum;
 } pc;
 
-float rand(vec2 co){
-    return texture(noise, co).x;
+vec4 rand(vec2 co){
+    return texture(noise, co);
 }
-float rand2(vec2 co, uint x, uint y, uint maxx, uint maxy){
-    return rand(co) * rand(vec2(x,y) / vec2(maxx, maxy));
+vec4 rand2(vec2 co, uint x, uint y, uint maxx, uint maxy){
+    return rand((vec2(x,y) / vec2(maxx, maxy)) + co);
 }
 
 vec3 reflectvec(vec3 v, vec3 normal){
@@ -615,10 +615,7 @@ float fresnel(vec3 v, vec3 normal){
 }
 
 vec3 rand_dir_from_surf(vec3 normal, vec2 co){
-    float r1 = rand(co);
-    float r2 = rand(vec2(co.x + co.y, r1));
-    float r3 = rand(vec2(r1,r2));
-    vec3 v = vec3(r1, r2, r3);
+    vec3 v = rand(co).xyz;
     v *= 2.0;
     v -= vec3(1.0);
 
@@ -836,8 +833,7 @@ void main() {
 
     RayResult groups[RBC];
 
-        vec2 randcoord = coords + (pixelsize * vec2(rand2(vec2(rand(coords), rand(coords + vec2(0.4 * pc.framenum / 10, 1.3 * gl_GlobalInvocationID.z / imageSize(img).z))), gl_GlobalInvocationID.z, pc.framenum, imageSize(img).z, 100),
- rand2(coords, gl_GlobalInvocationID.z, pc.framenum + 1, imageSize(img).z, 101)));
+        vec2 randcoord = coords + (pixelsize * rand2(coords, gl_GlobalInvocationID.z, pc.framenum, imageSize(img).z, 100).xy);
         vec3 raydir = ((randcoord.x * 2.0 - 1.0) * vec3(pc.right)) + ((randcoord.y * 2.0 - 1.0) * vec3(pc.up)) + vec3(pc.forward);
         vec3 start =  vec3(pc.campos);
 
@@ -850,9 +846,9 @@ return;
 
         for(uint g = 1; g < RBC; g++){
             float roughness = get_voxel_roughness(groups[g-1].node);
-            float specular= round(float(rand2(vec2(rand(coords), rand(coords + vec2(0.8 * pc.framenum / 10, 1.9 * gl_GlobalInvocationID.z / imageSize(img).z))), gl_GlobalInvocationID.z, pc.framenum + 2 * g, imageSize(img).z, 102) > (0.5 * (1.0 - get_voxel_metalness(groups[g-1].node)))));
+            float specular= round(float(rand2(coords * g, gl_GlobalInvocationID.z, pc.framenum + 2 * g, imageSize(img).z, 102).w > (0.5 * (1.0 - get_voxel_metalness(groups[g-1].node)))));
 
-            vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, vec2(rand2(vec2(rand(coords), rand(coords + vec2(1.35 * pc.framenum / 10, 2.7 * gl_GlobalInvocationID.z / imageSize(img).z))), gl_GlobalInvocationID.z, pc.framenum + 3 * g, imageSize(img).z, 103), rand2(vec2(rand(coords), rand(coords + vec2(0.2 * pc.framenum / 10, 3.1 * gl_GlobalInvocationID.z / imageSize(img).z))), gl_GlobalInvocationID.z, pc.framenum + 4 * g, imageSize(img).z, 104)));
+            vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, rand(rand2(rand(coords).xz, gl_GlobalInvocationID.z, pc.framenum + 3 * g, imageSize(img).z, 103).xw).xy);
 
             vec3 specdir=(roughness * newdir) + ((1.0 - roughness) * reflectvec(groups[g-1].raydir, groups[g-1].hitnormal));
             groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), normalize((newdir * (1.0-specular)) + (specdir * specular)), 1, specular);
