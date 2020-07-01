@@ -7,9 +7,9 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: u32 = 1;
-const RPP_buffer: usize = 15;
+const RPP_buffer: usize = 16;
 
-const SNAP_RPP_mult: u32 = 20;
+const SNAP_RPP_mult: u32 = 30;
 const SNAP_LENGTH: usize = 1;
 
 use lib::*;
