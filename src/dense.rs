@@ -107,7 +107,6 @@ impl DenseVoxelData {
         ) -> u64 {
             if level >= levels.len() - 1 {
                 let ac = s.access(x, y, z);
-                if ac.flags & 1 == 1 {
                     *tree.get_node(node) = *ac;
                     tree.get_node(node).childmask = 0;
                     let sp = SparseNode {
@@ -120,10 +119,9 @@ impl DenseVoxelData {
                         parent_index,
                         parent_child_index,
                         hash,
-                        empty: false,
+                        empty: tree.get_node(node).flags & 1 == 0,
                     });
                     return hash;
-                }
                 return 0;
             }
 
@@ -266,7 +264,7 @@ impl DenseVoxelData {
         tree.free();
 
         tree2.reallocate_to_fit();
-        
+        //println!("{}", tree2.mem_size());
         tree2
     }
 }
