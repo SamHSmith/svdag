@@ -7,10 +7,10 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: u32 = 1;
-const RPP_buffer: usize = 16;
+const RPP_buffer: usize = 24;
 
 const SNAP_RPP_mult: u32 = 50;
-const SNAP_LENGTH: usize = 1;
+const SNAP_LENGTH: usize = 100;
 
 use lib::*;
 
@@ -186,19 +186,29 @@ fn main() {
     use crate::dense::*;
     let mut dense = DenseVoxelData::new(3);
     dense.access_mut(0, 6, 7).flags = 1;
-    dense.access_mut(0, 6, 7).colour = [50, 50, 250];
-    dense.access_mut(0, 6, 7).emission = 255;
+    dense.access_mut(0, 6, 7).colour = [20, 20, 250];
+    dense.access_mut(0, 6, 7).emission = 75;
     dense.access_mut(0, 6, 7).roughness = 150;
     dense.access_mut(7, 6, 0).flags = 1;
-    dense.access_mut(7, 6, 0).colour = [250, 50, 50];
-    dense.access_mut(7, 6, 0).emission = 255;
+    dense.access_mut(7, 6, 0).colour = [250, 100, 100];
+    dense.access_mut(7, 6, 0).emission = 48;
     dense.access_mut(7, 6, 0).roughness = 150;
 
     for x in 0..8 {
         for z in 0..8 {
-            dense.access_mut(x, 7, z).flags=1;
-            dense.access_mut(x, 7, z).emission=0;
-            dense.access_mut(x, 7, z).roughness=230;
+            dense.access_mut(x, 7, z).flags = 1;
+            dense.access_mut(x, 7, z).emission = 0;
+            dense.access_mut(x, 7, z).roughness = 230;
+            dense.access_mut(x, 7, z).colour = [200, 200, 200];
+        }
+    }
+    for y in 2..8 {
+        for x in 3..4 {
+            dense.access_mut(3, y, x).flags = 1;
+            dense.access_mut(3, y, x).colour = [255, 219, 145];
+            dense.access_mut(3, y, x).roughness = 10;
+            dense.access_mut(3, y, x).emission = 0;
+            dense.access_mut(3, y, x).metalness = 255;
         }
     }
 
@@ -298,6 +308,7 @@ fn main() {
     let mut _usage = ImageUsage::none();
     _usage.sampled = true;
     _usage.transfer_destination = true;
+    _usage.transfer_source = true;
 
     let reader =
         std::io::BufReader::new(std::fs::File::open("noise.png").expect("can't find noise.png"));
@@ -326,7 +337,7 @@ fn main() {
             .as_rgba8()
             .unwrap()
             .pixels()
-            .map(|x| [x[0] as u8,x[1] as u8,x[2] as u8,x[3] as u8] as [u8; 4]),
+            .map(|x| [x[0] as u8, x[1] as u8, x[2] as u8, x[3] as u8] as [u8; 4]),
     )
     .unwrap();
 
@@ -339,13 +350,13 @@ fn main() {
 
     cmdbuf.execute(queue.clone());
 
-    let rayimages: Vec<Arc<AttachmentImage<format::R8G8B8A8Unorm>>> = (0..images.len())
+    let rayimages: Vec<Arc<AttachmentImage<format::R8G8B8A8Srgb>>> = (0..images.len())
         .into_iter()
         .map(|x| {
             AttachmentImage::with_usage(
                 device.clone(),
                 [WIDTH as u32, HEIGHT as u32],
-                format::R8G8B8A8Unorm,
+                format::R8G8B8A8Srgb,
                 _usage,
             )
             .unwrap()
@@ -707,7 +718,9 @@ vec3 get_voxel_colour(uint ptr){
     return vec3(get_byte(read_vbuffer(ptr),2), get_byte(read_vbuffer(ptr),3) , get_byte(read_vbuffer(ptr + 1),0)) / 255.0;
 }
 float get_voxel_emission(uint ptr){
-    return float(get_byte(read_vbuffer(ptr + 1),1) / 255.0);
+    uint em = get_byte(read_vbuffer(ptr + 1),1);
+    float f = em / 255.0;
+    return (pow(f, 3.4) * 2000.0) * float(em > 0);
 }
 float get_voxel_metalness(uint ptr){
     return float(get_byte(read_vbuffer(ptr + 1),2) / 255.0);
@@ -810,7 +823,7 @@ vec3 calculate_colour(RayResult t, vec3 nc, float ns){
     colour += specular_highlight * nc;
     colour += (1.0 - ns) * 0.5 * (1.0 - get_voxel_metalness(t.node)) * get_voxel_colour(t.node) * nc;
 
-    colour *= (1.0 - get_voxel_emission(t.node));
+    //colour *= 1.0 - float(get_voxel_emission(t.node) > 0.0);
     colour += get_voxel_colour(t.node) * get_voxel_emission(t.node);
 
     colour *= length(t.hitnormal);
@@ -856,16 +869,14 @@ return;
 
         colour = colours[0];
 
-
     float biggest= 0.0;
     biggest = max(biggest, colour.x);
     biggest = max(biggest, colour.y);
     biggest = max(biggest, colour.z);
 
-
     colour /= biggest;
 
-    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, min(max(biggest, 0.0), 1.0)));
+    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, min(max(biggest / 2000.0, 0.0), 1.0)));
 }"
         }
     }
@@ -890,16 +901,14 @@ void main() {
 
     for(uint i = 0; i < imageSize(img).z; i++){
         vec4 colour = imageLoad(img, ivec3(gl_GlobalInvocationID.xy, i));
-        final += colour.xyz * (colour.w);
+        final += colour.xyz * (colour.w * 2000.0) / imageSize(img).z;
     }
-
-    final /= imageSize(img).z;
 
     float alpha = max(final.x, max(final.y, final.z));
 
     final /= alpha;
 
-    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha));
+    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / 2000.0));
 }
 "
         }
@@ -926,11 +935,16 @@ layout(push_constant) uniform pushConstants {
 } pc;
 
 void main() {
-    vec4 final = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy)) * (float(pc.rpp) / float(pc.rpp + pc.so_far_rpp));
+    vec4 l1 = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy));
+    vec3 final = l1.xyz * l1.w * 2000.0 * (float(pc.rpp) / float(pc.rpp + pc.so_far_rpp));
 
-    final += imageLoad(imgout, ivec2(gl_GlobalInvocationID.xy)) * (float(pc.so_far_rpp) / float(pc.rpp + pc.so_far_rpp));
+    vec4 l2 = imageLoad(imgout, ivec2(gl_GlobalInvocationID.xy));
+    final += l2.xyz * l2.w * 2000.0 * (float(pc.so_far_rpp) / float(pc.rpp + pc.so_far_rpp));
 
-    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), final);
+    float alpha = max(final.x, max(final.y, final.z));
+    final /= alpha;
+
+    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / 2000.0));
     //imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(1.0));
 }
 "
@@ -952,22 +966,23 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16) uniform readonly image2D imgin;
 layout(set = 0, binding = 1, rgba8) uniform writeonly image2D imgout;
 
-
-vec3 toSRGB(vec3 linear)
-{
-    bvec3 cutoff = lessThan(linear, vec3(0.0031308));
-    vec3 higher = vec3(1.055) * pow(linear, vec3(1.0) / vec3(2.4)) - vec3(0.055);
-    vec3 lower = vec3(12.92) * linear;
-
-    return mix(higher, lower, cutoff);
-}
-
-const float MaxBright = 0.005;
-
 void main() {
-    vec4 final = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy));
+    vec4 f = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy));
+    vec3 final = (f.xyz * f.w * 2000.0);
 
-    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(toSRGB(final.xyz * final.w / MaxBright), 1.0));
+    float biggest = max(1.0, max(final.x, max(final.y, final.z)));
+    vec3 true_colour = final / biggest;
+    float blowout = max(final.x - 1.0, 0.0);
+    blowout += max(final.y - 1.0, 0.0);
+    blowout += max(final.z - 1.0, 0.0);
+    blowout /= 3.0;
+
+    vec3 sfinal = mix(true_colour, vec3(1.0), blowout);
+    sfinal.x = min(max(0.0, sfinal.x), 1.0);
+    sfinal.y = min(max(0.0, sfinal.y), 1.0);
+    sfinal.z = min(max(0.0, sfinal.z), 1.0);
+
+    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(sfinal, 1.0));
 }
 "
         }
@@ -1198,8 +1213,7 @@ void main() {
     )
     .unwrap();
 
-    let buf = CpuAccessibleBuffer::from_iter
-        (
+    let buf = CpuAccessibleBuffer::from_iter(
         device.clone(),
         BufferUsage::all(),
         false,
@@ -1342,7 +1356,11 @@ void main() {
         }
 
         if window.window.get_key(glfw::Key::B) == glfw::Action::Press {
-            campos = new_vec(-0.23391431784279354, -0.3425462427036379, -0.23932050565719531);
+            campos = new_vec(
+                -0.23391431784279354,
+                -0.3425462427036379,
+                -0.23932050565719531,
+            );
             camrot = new_vec(-72.5, 403.0, 0.0);
         }
 
@@ -1408,7 +1426,11 @@ void main() {
                 )
                 .unwrap()
                 .dispatch(
-                    [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, (RPP_buffer / 8) as u32],
+                    [
+                        (WIDTH / 8) as u32,
+                        (HEIGHT / 8) as u32,
+                        (RPP_buffer / 8) as u32,
+                    ],
                     compute_pipeline.clone(),
                     (sets[image_num].clone()),
                     gen_push_const(campos, right, down, forward, framenum),
@@ -1494,7 +1516,7 @@ void main() {
 
         if snapcount > 0 {
             command_buffer_build = command_buffer_build
-                .copy_image_to_buffer(outimages[image_num].clone(), buf.clone())
+                .copy_image_to_buffer(rayimages[image_num].clone(), buf.clone())
                 .unwrap();
         }
 
