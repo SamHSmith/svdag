@@ -79,6 +79,7 @@ impl DenseVoxelData {
             parent_index: u32,
             parent_child_index: u8,
             hash: u64,
+            empty: bool,
         }
 
         let mut levels: Vec<Vec<SparseNodeCont>> = Vec::new();
@@ -119,6 +120,7 @@ impl DenseVoxelData {
                         parent_index,
                         parent_child_index,
                         hash,
+                        empty: false,
                     });
                     return hash;
                 }
@@ -130,6 +132,8 @@ impl DenseVoxelData {
             let mut child_hashes = [0u64; 8];
 
             let levelindex = levels[level].len() as u32;
+
+            let mut is_one = false;
 
             for i in 0..8 {
                 let childptr = tree.allocate_node();
@@ -151,6 +155,8 @@ impl DenseVoxelData {
                     (y as usize + (clamp(loc.y, 0.0, 1.0) as usize * size as usize / 2)) as usize,
                     (z as usize + (clamp(loc.z, 0.0, 1.0) as usize * size as usize / 2)) as usize,
                 );
+
+                is_one |= child_hashes[i as usize] != 0;
             }
 
             let sp = SparseNode { node, child_hashes };
@@ -160,6 +166,7 @@ impl DenseVoxelData {
                 parent_index,
                 parent_child_index,
                 hash,
+                empty: !is_one,
             });
             return hash;
         }
@@ -193,13 +200,17 @@ impl DenseVoxelData {
             let mut last_hash = levels[leveli][0].hash;
             let mut replace = levels[leveli][0].sp.node;
             for i in 1..levels[leveli].len() {
+                let parent_index = levels[leveli][i].parent_index;
+                let parent_child_index = levels[leveli][i].parent_child_index;
+
+                let n: &mut VoxelNode =
+                    tree.get_node(levels[leveli - 1][parent_index as usize].sp.node);
+
+                if levels[leveli][i].empty {
+                    n.remove_child(parent_child_index);
+                }
+
                 if levels[leveli][i].hash == last_hash {
-                    let parent_index = levels[leveli][i].parent_index;
-                    let parent_child_index = levels[leveli][i].parent_child_index;
-
-                    let n: &mut VoxelNode =
-                        tree.get_node(levels[leveli - 1][parent_index as usize].sp.node);
-
                     n.put_child(parent_child_index, replace);
 
                 } else {
@@ -255,7 +266,7 @@ impl DenseVoxelData {
         tree.free();
 
         tree2.reallocate_to_fit();
-
+        
         tree2
     }
 }
