@@ -185,13 +185,13 @@ fn main() {
     //test code
     use crate::dense::*;
     let mut dense = DenseVoxelData::new(3);
-    dense.access_mut(0, 6, 7).flags = 1;
-    dense.access_mut(0, 6, 7).colour = [20, 20, 250];
-    dense.access_mut(0, 6, 7).emission = 75;
-    dense.access_mut(0, 6, 7).roughness = 150;
+    dense.access_mut(0, 5, 7).flags = 1;
+    dense.access_mut(0, 5, 7).colour = [20, 70, 200];
+    dense.access_mut(0, 5, 7).emission = 62;
+    dense.access_mut(0, 5, 7).roughness = 150;
     dense.access_mut(7, 6, 0).flags = 1;
     dense.access_mut(7, 6, 0).colour = [250, 100, 100];
-    dense.access_mut(7, 6, 0).emission = 48;
+    dense.access_mut(7, 6, 0).emission = 42;
     dense.access_mut(7, 6, 0).roughness = 150;
 
     for x in 0..8 {
@@ -203,6 +203,7 @@ fn main() {
         }
     }
     for y in 2..8 {
+
         for x in 3..4 {
             dense.access_mut(3, y, x).flags = 1;
             dense.access_mut(3, y, x).colour = [255, 219, 145];
@@ -720,7 +721,7 @@ vec3 get_voxel_colour(uint ptr){
 float get_voxel_emission(uint ptr){
     uint em = get_byte(read_vbuffer(ptr + 1),1);
     float f = em / 255.0;
-    return (pow(f, 3.4) * 2000.0) * float(em > 0);
+    return (pow(f, 3.4) * 8000.0) * float(em > 0);
 }
 float get_voxel_metalness(uint ptr){
     return float(get_byte(read_vbuffer(ptr + 1),2) / 255.0);
@@ -876,7 +877,7 @@ return;
 
     colour /= biggest;
 
-    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, min(max(biggest / 2000.0, 0.0), 1.0)));
+    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, min(max(biggest / 8000.0, 0.0), 1.0)));
 }"
         }
     }
@@ -901,14 +902,14 @@ void main() {
 
     for(uint i = 0; i < imageSize(img).z; i++){
         vec4 colour = imageLoad(img, ivec3(gl_GlobalInvocationID.xy, i));
-        final += colour.xyz * (colour.w * 2000.0) / imageSize(img).z;
+        final += colour.xyz * (colour.w * 8000.0) / imageSize(img).z;
     }
 
     float alpha = max(final.x, max(final.y, final.z));
 
     final /= alpha;
 
-    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / 2000.0));
+    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / 8000.0));
 }
 "
         }
@@ -936,15 +937,15 @@ layout(push_constant) uniform pushConstants {
 
 void main() {
     vec4 l1 = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy));
-    vec3 final = l1.xyz * l1.w * 2000.0 * (float(pc.rpp) / float(pc.rpp + pc.so_far_rpp));
+    vec3 final = l1.xyz * l1.w * 8000.0 * (float(pc.rpp) / float(pc.rpp + pc.so_far_rpp));
 
     vec4 l2 = imageLoad(imgout, ivec2(gl_GlobalInvocationID.xy));
-    final += l2.xyz * l2.w * 2000.0 * (float(pc.so_far_rpp) / float(pc.rpp + pc.so_far_rpp));
+    final += l2.xyz * l2.w * 8000.0 * (float(pc.so_far_rpp) / float(pc.rpp + pc.so_far_rpp));
 
     float alpha = max(final.x, max(final.y, final.z));
     final /= alpha;
 
-    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / 2000.0));
+    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / 8000.0));
     //imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(1.0));
 }
 "
@@ -968,16 +969,13 @@ layout(set = 0, binding = 1, rgba8) uniform writeonly image2D imgout;
 
 void main() {
     vec4 f = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy));
-    vec3 final = (f.xyz * f.w * 2000.0);
+    vec3 final = (f.xyz * f.w * 8000.0);
 
     float biggest = max(1.0, max(final.x, max(final.y, final.z)));
     vec3 true_colour = final / biggest;
-    float blowout = max(final.x - 1.0, 0.0);
-    blowout += max(final.y - 1.0, 0.0);
-    blowout += max(final.z - 1.0, 0.0);
-    blowout /= 3.0;
+    float rel_lum = final.x * 0.2126 + final.y * 0.7152 + final.z * 0.0722;
 
-    vec3 sfinal = mix(true_colour, vec3(1.0), blowout);
+    vec3 sfinal = mix(final, vec3(1.0), min(max(rel_lum - 1.0, 0.0), 1.0));
     sfinal.x = min(max(0.0, sfinal.x), 1.0);
     sfinal.y = min(max(0.0, sfinal.y), 1.0);
     sfinal.z = min(max(0.0, sfinal.z), 1.0);
