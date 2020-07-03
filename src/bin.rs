@@ -9,7 +9,7 @@ const HEIGHT: usize = 480;
 const RPP_mult: u32 = 1;
 const RPP_buffer: usize = 16;
 
-const SNAP_RPP_mult: u32 = 30;
+const SNAP_RPP_mult: u32 = 50;
 const SNAP_LENGTH: usize = 1;
 
 use lib::*;
@@ -797,7 +797,7 @@ RayResult cast_ray_voxel(vec3 start, vec3 dir, uint root, float specular) {
 }
 
 const uint RBC = 4; // + 1
-const float EMISSION = 15.0;
+
 
 vec3 calculate_colour(RayResult t, vec3 nc, float ns){
     float specular = ns * ((fresnel(-t.raydir, t.hitnormal) * (1.0 - get_voxel_roughness(t.node))) * ((0.5 * (1.0 - get_voxel_metalness(t.node))) + (0.98 * get_voxel_metalness(t.node))));
@@ -811,7 +811,7 @@ vec3 calculate_colour(RayResult t, vec3 nc, float ns){
     colour += (1.0 - ns) * 0.5 * (1.0 - get_voxel_metalness(t.node)) * get_voxel_colour(t.node) * nc;
 
     colour *= (1.0 - get_voxel_emission(t.node));
-    colour += get_voxel_colour(t.node) * get_voxel_emission(t.node) * EMISSION;
+    colour += get_voxel_colour(t.node) * get_voxel_emission(t.node);
 
     colour *= length(t.hitnormal);
 
@@ -865,7 +865,7 @@ return;
 
     colour /= biggest;
 
-    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, min(max(biggest / EMISSION, 0.0), 1.0)));
+    imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(colour, min(max(biggest, 0.0), 1.0)));
 }"
         }
     }
@@ -885,14 +885,12 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16) uniform readonly image3D img;
 layout(set = 0, binding = 1, rgba16) uniform writeonly image2D img2;
 
-const float EMISSION = 15.0;
-
 void main() {
     vec3 final = vec3(0.0);
 
     for(uint i = 0; i < imageSize(img).z; i++){
         vec4 colour = imageLoad(img, ivec3(gl_GlobalInvocationID.xy, i));
-        final += colour.xyz * (colour.w * EMISSION);
+        final += colour.xyz * (colour.w);
     }
 
     final /= imageSize(img).z;
@@ -901,7 +899,7 @@ void main() {
 
     final /= alpha;
 
-    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha / EMISSION));
+    imageStore(img2, ivec2(gl_GlobalInvocationID.xy), vec4(final, alpha));
 }
 "
         }
@@ -964,12 +962,12 @@ vec3 toSRGB(vec3 linear)
     return mix(higher, lower, cutoff);
 }
 
-const float EMISSION = 15.0;
+const float MaxBright = 0.005;
 
 void main() {
     vec4 final = imageLoad(imgin, ivec2(gl_GlobalInvocationID.xy));
 
-    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(toSRGB(final.xyz * final.w * EMISSION), 1.0));
+    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(toSRGB(final.xyz * final.w / MaxBright), 1.0));
 }
 "
         }
