@@ -7,9 +7,9 @@ const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
 
 const RPP_mult: u32 = 1;
-const RPP_buffer: usize = 24;
+const RPP_buffer: usize = 8;
 
-const SNAP_RPP_mult: u32 = 50;
+const SNAP_RPP_mult: u32 = 180;
 const SNAP_LENGTH: usize = 100;
 
 use lib::*;
@@ -187,7 +187,7 @@ fn main() {
     let mut dense = DenseVoxelData::new(3);
     dense.access_mut(0, 5, 7).flags = 1;
     dense.access_mut(0, 5, 7).colour = [20, 70, 200];
-    dense.access_mut(0, 5, 7).emission = 62;
+    dense.access_mut(0, 5, 7).emission = 112;
     dense.access_mut(0, 5, 7).roughness = 150;
     dense.access_mut(7, 6, 0).flags = 1;
     dense.access_mut(7, 6, 0).colour = [250, 100, 100];
@@ -441,7 +441,39 @@ fn main() {
                 Format::R8G8B8A8Unorm,
                 Some(queue.family()),
             )
-            .unwrap()
+                .unwrap()
+        })
+        .collect();
+
+    let bloomimages: Vec<Arc<StorageImage<Format>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            StorageImage::new(
+                device.clone(),
+                Dimensions::Dim2d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                },
+                Format::R8G8B8A8Unorm,
+                Some(queue.family()),
+            )
+                .unwrap()
+        })
+        .collect();
+
+    let bloomimages2: Vec<Arc<StorageImage<Format>>> = (0..images.len())
+        .into_iter()
+        .map(|x| {
+            StorageImage::new(
+                device.clone(),
+                Dimensions::Dim2d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                },
+                Format::R8G8B8A8Unorm,
+                Some(queue.family()),
+            )
+                .unwrap()
         })
         .collect();
 
@@ -965,6 +997,7 @@ void main() {
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16) uniform readonly image2D imgin;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2D imgbloom;
 layout(set = 0, binding = 1, rgba8) uniform writeonly image2D imgout;
 
 void main() {
@@ -975,12 +1008,89 @@ void main() {
     vec3 true_colour = final / biggest;
     float rel_lum = final.x * 0.2126 + final.y * 0.7152 + final.z * 0.0722;
 
-    vec3 sfinal = mix(final, vec3(1.0), min(max(rel_lum - 1.0, 0.0), 1.0));
+    float whiteness = min(max(rel_lum - 1.0, 0.0), 1.0);
+    vec3 sfinal = mix(final, vec3(1.0), whiteness);
     sfinal.x = min(max(0.0, sfinal.x), 1.0);
     sfinal.y = min(max(0.0, sfinal.y), 1.0);
     sfinal.z = min(max(0.0, sfinal.z), 1.0);
 
     imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(sfinal, 1.0));
+    imageStore(imgbloom, ivec2(gl_GlobalInvocationID.xy), vec4(true_colour * pow(min(max(rel_lum - 1.0, 0.0), 8000.0) / 8000.0, 0.4), 1.0));
+}
+"
+        }
+    }
+
+    mod cs5 {
+        vulkano_shaders::shader! {
+            ty: "compute",
+            src: "
+#version 450
+#define FLT_MAX 3.402823466e+38
+#define FLT_MIN 1.175494351e-38
+#define DBL_MAX 1.7976931348623158e+308
+#define DBL_MIN 2.2250738585072014e-308
+#define VBUFFER_SIZE 500
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(set = 0, binding = 0, rgba8) uniform readonly image2D imgbloom;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D imgbloom2;
+
+layout(push_constant) uniform pushConstants {
+    int size;
+} pc;
+
+void main() {
+    vec3 value = vec3(0.0);
+    float count = 0;
+    for(int i = -pc.size; i <= pc.size; i++){
+        int x = i + int(gl_GlobalInvocationID.x);
+        if(x > 0 && x < imageSize(imgbloom).x){
+            float weight = (int(pc.size) - abs(i)) / 5;
+            value += imageLoad(imgbloom, ivec2(x, gl_GlobalInvocationID.y)).xyz * weight;
+            count += weight;
+        }
+    }
+    value /= count;
+    imageStore(imgbloom2, ivec2(gl_GlobalInvocationID.xy), vec4(value, 1.0));
+}
+"
+        }
+    }
+
+    mod cs6 {
+        vulkano_shaders::shader! {
+            ty: "compute",
+            src: "
+#version 450
+#define FLT_MAX 3.402823466e+38
+#define FLT_MIN 1.175494351e-38
+#define DBL_MAX 1.7976931348623158e+308
+#define DBL_MIN 2.2250738585072014e-308
+#define VBUFFER_SIZE 500
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(set = 0, binding = 0, rgba8) uniform readonly image2D imgbloom;
+layout(set = 0, binding = 1, rgba8) uniform image2D imgout;
+
+layout(push_constant) uniform pushConstants {
+    int size;
+} pc;
+
+void main() {
+    vec3 value = vec3(0.0);
+    float count = 0;
+    for(int i = -pc.size; i <= pc.size; i++){
+        int y = i + int(gl_GlobalInvocationID.y);
+        if(y > 0 && y < imageSize(imgbloom).y){
+            float weight = (int(pc.size) - abs(i)) / 5;
+            value += imageLoad(imgbloom, ivec2(gl_GlobalInvocationID.x, y)).xyz * weight;
+            count += weight;
+        }
+    }
+    value /= count;
+    imageStore(imgout, ivec2(gl_GlobalInvocationID.xy), vec4(value * 4 +
+           imageLoad(imgout, ivec2(gl_GlobalInvocationID.xy)).xyz, 1.0));
 }
 "
         }
@@ -1011,6 +1121,20 @@ void main() {
 
     let compute_pipeline4 = Arc::new(
         ComputePipeline::new(device.clone(), &shader4.main_entry_point(), &())
+            .expect("failed to create compute pipeline"),
+    );
+
+    let shader5 = cs5::Shader::load(device.clone()).expect("failed to create shader module");
+
+    let compute_pipeline5 = Arc::new(
+        ComputePipeline::new(device.clone(), &shader5.main_entry_point(), &())
+            .expect("failed to create compute pipeline"),
+    );
+
+    let shader6 = cs6::Shader::load(device.clone()).expect("failed to create shader module");
+
+    let compute_pipeline6 = Arc::new(
+        ComputePipeline::new(device.clone(), &shader6.main_entry_point(), &())
             .expect("failed to create compute pipeline"),
     );
 
@@ -1107,12 +1231,50 @@ void main() {
                     .unwrap()
                     .clone(),
             )
-            .add_image(imagecombines[i].clone())
-            .unwrap()
-            .add_image(outimages[i].clone())
-            .unwrap()
-            .build()
-            .unwrap(),
+                .add_image(imagecombines[i].clone())
+                .unwrap()
+                .add_image(outimages[i].clone())
+                .unwrap()
+                .add_image(bloomimages[i].clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+        ));
+    }
+    let mut set5 = Vec::new();
+    for i in 0..images.len() {
+        set5.push(Arc::new(
+            PersistentDescriptorSet::start(
+                compute_pipeline5
+                    .layout()
+                    .descriptor_set_layout(0)
+                    .unwrap()
+                    .clone(),
+            )
+                .add_image(bloomimages[i].clone())
+                .unwrap()
+                .add_image(bloomimages2[i].clone())
+                .unwrap()
+                .build()
+                .unwrap(),
+        ));
+    }
+    let mut set6 = Vec::new();
+    for i in 0..images.len() {
+        set6.push(Arc::new(
+            PersistentDescriptorSet::start(
+                compute_pipeline6
+                    .layout()
+                    .descriptor_set_layout(0)
+                    .unwrap()
+                    .clone(),
+            )
+                .add_image(bloomimages2[i].clone())
+                .unwrap()
+                .add_image(outimages[i].clone())
+                .unwrap()
+                .build()
+                .unwrap(),
         ));
     }
     use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
@@ -1470,6 +1632,20 @@ void main() {
                 compute_pipeline4.clone(),
                 (set4[image_num].clone()),
                 (),
+            )
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline5.clone(),
+                (set5[image_num].clone()),
+                (WIDTH/12),
+            )
+            .unwrap()
+            .dispatch(
+                [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
+                compute_pipeline6.clone(),
+                (set6[image_num].clone()),
+                (WIDTH /12),
             )
             .unwrap()
             .copy_image(
