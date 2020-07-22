@@ -149,17 +149,19 @@ impl VoxelNode {
             }
         }
         unsafe {
-        match stuff {
-            Some(a) => {
-                std::ptr::copy::<u32>(
-                    (&mut self.childmask as *mut u8 as *mut u32)
-                        .offset(2 + ((memplace + a) as isize)),
-                    (&mut self.childmask as *mut u8 as *mut u32).offset(2 + ((memplace) as isize)),
-                    count as usize,
-                );
+            match stuff {
+                Some(a) => {
+                    std::ptr::copy::<u32>(
+                        (&mut self.childmask as *mut u8 as *mut u32)
+                            .offset(2 + ((memplace + a) as isize)),
+                        (&mut self.childmask as *mut u8 as *mut u32)
+                            .offset(2 + ((memplace) as isize)),
+                        count as usize,
+                    );
+                }
+                _ => (),
             }
-            _ => (),
-        }}
+        }
         self.childmask &= !(1 << childindex);
     }
 
@@ -207,9 +209,9 @@ pub fn oct_byte_to_vec<F>(byte: u8) -> Vector3<F>
 where
     F: num_traits::float::Float,
 {
-    let y = F::from(byte_to_one(byte & 204)).unwrap();
-    let x = F::from(byte_to_one(byte & 102)).unwrap();
-    let z = F::from(byte_to_one(byte & 240)).unwrap();
+    let x = F::from(byte_to_one(byte & 1)).unwrap();
+    let y = F::from(byte_to_one(byte & 2)).unwrap();
+    let z = F::from(byte_to_one(byte & 4)).unwrap();
     Vector3 {
         x: x - F::from(0.5).unwrap(),
         y: y - F::from(0.5).unwrap(),

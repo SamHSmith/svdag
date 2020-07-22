@@ -1,7 +1,5 @@
 use cgmath::prelude::One;
 use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Vector3, Vector4};
-use lib::render::cpu::CpuRenderer;
-use lib::render::*;
 
 const WIDTH: usize = 640;
 const HEIGHT: usize = 480;
@@ -12,7 +10,7 @@ const RPP_buffer: usize = 8;
 const SNAP_RPP_mult: u32 = 180;
 const SNAP_LENGTH: usize = 100;
 
-use lib::*;
+use svdag::*;
 
 fn main() {
     use chrono::prelude::*;
@@ -152,31 +150,31 @@ fn main() {
     node.get_child(tree, 1).roughness = 210;
     node.put_child(0, tree.allocate_node());
     let node2: &mut VoxelNode = node.get_child(tree, 0);
-    node2.put_child(3, tree.allocate_node());
-    node2.get_child(tree, 3).flags = 1;
-    node2.get_child(tree, 3).colour = [130, 100, 2];
-    node2.get_child(tree, 3).roughness = 35;
+    node2.put_child(2, tree.allocate_node());
+    node2.get_child(tree, 2).flags = 1;
+    node2.get_child(tree, 2).colour = [130, 100, 2];
+    node2.get_child(tree, 2).roughness = 35;
     node2.put_child(0, tree.allocate_node());
     node2.get_child(tree, 0).put_child(6, tree.allocate_node());
     node2.get_child(tree, 0).get_child(tree, 6).flags = 1;
     node2.get_child(tree, 0).get_child(tree, 6).colour = [198, 198, 200];
     node2.get_child(tree, 0).get_child(tree, 6).metalness = 255;
     node2.get_child(tree, 0).get_child(tree, 6).roughness = 150;
-    node2.put_child(2, tree.allocate_node());
-    node2.get_child(tree, 2).flags = 1;
-    node2.get_child(tree, 2).colour = [255, 219, 145];
-    node2.get_child(tree, 2).roughness = 10;
-    node2.get_child(tree, 2).metalness = 255;
+    node2.put_child(3, tree.allocate_node());
+    node2.get_child(tree, 3).flags = 1;
+    node2.get_child(tree, 3).colour = [255, 219, 145];
+    node2.get_child(tree, 3).roughness = 10;
+    node2.get_child(tree, 3).metalness = 255;
     node2.put_child(6, tree.allocate_node());
     node2.get_child(tree, 6).flags = 1;
     node2.get_child(tree, 6).colour = [50, 50, 50];
     node2.get_child(tree, 6).roughness = 249;
     node2.put_child(5, tree.allocate_node());
-    node2.get_child(tree, 5).put_child(2, tree.allocate_node());
-    node2.get_child(tree, 5).get_child(tree, 2).flags = 1;
-    node2.get_child(tree, 5).get_child(tree, 2).colour = [255, 147, 41];
-    node2.get_child(tree, 5).get_child(tree, 2).emission = 255;
-    node2.get_child(tree, 5).get_child(tree, 2).roughness = 255;
+    node2.get_child(tree, 5).put_child(3, tree.allocate_node());
+    node2.get_child(tree, 5).get_child(tree, 3).flags = 1;
+    node2.get_child(tree, 5).get_child(tree, 3).colour = [255, 147, 41];
+    node2.get_child(tree, 5).get_child(tree, 3).emission = 55;
+    node2.get_child(tree, 5).get_child(tree, 3).roughness = 255;
     node2.put_child(7, tree.allocate_node());
     node2.get_child(tree, 7).flags = 1;
     node2.get_child(tree, 7).colour = [20, 50, 180];
@@ -184,7 +182,7 @@ fn main() {
 
     //test code
     use crate::dense::*;
-    let mut dense = DenseVoxelData::new(3);
+    let mut dense = DenseVoxelData::new(5);
     dense.access_mut(0, 5, 7).flags = 1;
     dense.access_mut(0, 5, 7).colour = [20, 70, 200];
     dense.access_mut(0, 5, 7).emission = 112;
@@ -203,7 +201,6 @@ fn main() {
         }
     }
     for y in 2..8 {
-
         for x in 3..4 {
             dense.access_mut(3, y, x).flags = 1;
             dense.access_mut(3, y, x).colour = [255, 219, 145];
@@ -214,6 +211,21 @@ fn main() {
     }
 
     let treeother = dense.to_sparse();
+
+    /*let mut tree = allocate(1000);
+    let rootid = tree.allocate_node();
+    let broot = tree.get_node(rootid);
+    broot.put_child(2, tree.allocate_node());
+    broot.get_child(tree, 2).flags = 1;
+    broot.get_child(tree, 2).colour = [200, 100, 100];
+    broot.put_child(1, tree.allocate_node());
+    broot.get_child(tree, 1).flags = 1;
+    broot.get_child(tree, 1).colour = [100, 200, 100];
+    broot.put_child(5, tree.allocate_node());
+    broot.get_child(tree, 5).flags = 1;
+    broot.get_child(tree, 5).colour = [100, 100, 200];
+    broot.flags = 0;
+    broot.colour = [200, 200, 200];*/
 
     let mut campos = new_vec(0.0, 0.0, 0.0);
     let mut camrot = new_vec(-10.0, 40.0, 0.0);
@@ -441,7 +453,7 @@ fn main() {
                 Format::R8G8B8A8Unorm,
                 Some(queue.family()),
             )
-                .unwrap()
+            .unwrap()
         })
         .collect();
 
@@ -457,7 +469,7 @@ fn main() {
                 Format::R8G8B8A8Unorm,
                 Some(queue.family()),
             )
-                .unwrap()
+            .unwrap()
         })
         .collect();
 
@@ -473,7 +485,7 @@ fn main() {
                 Format::R8G8B8A8Unorm,
                 Some(queue.family()),
             )
-                .unwrap()
+            .unwrap()
         })
         .collect();
 
@@ -671,7 +683,7 @@ vec3 rand_dir_from_surf(vec3 normal, vec2 co){
 }
 
 vec3 oct_byte_to_vec(uint byte){ // 204 102 240
-    return vec3(float(bool(byte & 102)), float(bool(byte & 204)), float(bool(byte & 240))) - vec3(0.5);
+    return vec3(float(bool(byte & 1)), float(bool(byte & 2)), float(bool(byte & 4))) - vec3(0.5);
 }
 
 vec3 biggest_axis(vec3 v){
@@ -778,13 +790,16 @@ uint get_voxel_child(uint voxelptr, uint childindex){
     }
 }
 
-const uint stacksize = 3;
+const uint stacksize = 20;
 
 struct StackFrame {
-    vec3 location;
-    float size;
     uint node;
-    uint subnode;
+    float size;
+    vec3 pos;
+    uint childcount;
+    uint children[4];
+    uint current_child;
+    bool should_init;
 };
 
 struct RayResult{
@@ -796,50 +811,185 @@ struct RayResult{
     uint node;
 };
 
-RayResult cast_ray_voxel(vec3 start, vec3 dir, uint root, float specular) {
-    float size = 1.0;
+RayResult cast_ray_voxel(vec3 ray_start, vec3 ray_dir, uint _node, float _size, vec3 _pos, float specular) {
 
-    RayResult closestleaf = RayResult(vec3(0.0),vec3(0.0),vec3(0.0),0.0,0.0,0);
-    closestleaf.t = FLT_MAX;
+    int stackindex = 0;
+    StackFrame stack[stacksize];
 
-    StackFrame[stacksize] frames;
-    int stackindex = -1;
+    stack[0] = StackFrame(
+        _node,
+        _size / 2.0,
+        _pos,
+        0,
+        uint[4](0,0,0,0),
+        0,
+        true
+    );
 
-    RayTarget h = cast_ray_v_box(start - vec3(0.0), dir, size);
 
-    if(h.t < FLT_MAX && h.t > 0){
-        stackindex++;
-        frames[stackindex] = StackFrame(vec3(0.0), size, root, 0);
-	  }
 
-    while(stackindex >= 0) {
-		    int i = stackindex;
-        if(frames[i].subnode > 7){
-			      stackindex--;
+    while(stackindex >= 0 && stackindex < stacksize) {
+
+        if(!stack[stackindex].should_init) {
+if(stack[stackindex].current_child >= stack[stackindex].childcount) {
+            stackindex -= 1;
             continue;
-		    }
-        uint child = 1 << frames[i].subnode;
-        if((get_voxel_childmask(frames[i].node) & child) != 0) {
-            vec3 loc = frames[i].location + (oct_byte_to_vec(child) * frames[i].size / 2.0);
-            uint childnode = get_voxel_child(frames[i].node, frames[i].subnode);
-            RayTarget hit = cast_ray_v_box(start - loc, dir, frames[i].size / 2.0);
+        }
 
-            if(hit.t > 0 && hit.t < FLT_MAX){
-                if((get_voxel_flags(childnode) & 1) != 0 && hit.t > 0 && hit.t < closestleaf.t){
-                    closestleaf = RayResult(hit.hitlocation + loc, hit.hitnormal, dir, hit.t, specular, childnode);
-                } else if(get_voxel_childmask(childnode) != 0){
-					          stackindex++;
-                    frames[stackindex] = StackFrame(loc, frames[i].size / 2.0, childnode, 0);
+        uint current_child = stack[stackindex].current_child;
+
+        stack[stackindex + 1].node = get_voxel_child(stack[stackindex].node, stack[stackindex].children[current_child]);
+
+        stack[stackindex + 1].size = stack[stackindex].size / 2.0;
+
+        stack[stackindex + 1].pos = stack[stackindex].pos
+            + (oct_byte_to_vec(stack[stackindex].children[current_child])
+                * stack[stackindex].size);
+        stack[stackindex + 1].should_init = true;
+
+        stack[stackindex].current_child += 1;
+        stackindex += 1;
+
+        continue;
+        }
+            uint root_node = stack[stackindex].node;
+            uint vmask = uint(ray_dir.x < 0.0)
+                | (uint(ray_dir.y < 0.0) << 1)
+                | (uint(ray_dir.z < 0.0) << 2);
+
+            vec3 box_min = vec3(
+                -stack[stackindex].size
+            ) + stack[stackindex].pos;
+            vec3 box_max = vec3(
+                stack[stackindex].size
+            ) + stack[stackindex].pos;
+
+            float s_xmin = (box_min.x - ray_start.x) / (ray_dir.x + (float(ray_dir.x > 0.0) * EPSILON) - (float(ray_dir.x < 0.0) * EPSILON));
+            float s_ymin = (box_min.y - ray_start.y) / (ray_dir.y + (float(ray_dir.y > 0.0) * EPSILON) - (float(ray_dir.y < 0.0) * EPSILON));
+            float s_zmin = (box_min.z - ray_start.z) / (ray_dir.z + (float(ray_dir.z > 0.0) * EPSILON) - (float(ray_dir.z < 0.0) * EPSILON));
+
+            float s_xmax = (box_max.x - ray_start.x) / (ray_dir.x + (float(ray_dir.x > 0.0) * EPSILON) - (float(ray_dir.x < 0.0) * EPSILON));
+            float s_ymax = (box_max.y - ray_start.y) / (ray_dir.y + (float(ray_dir.y > 0.0) * EPSILON) - (float(ray_dir.y < 0.0) * EPSILON));
+            float s_zmax = (box_max.z - ray_start.z) / (ray_dir.z + (float(ray_dir.z > 0.0) * EPSILON) - (float(ray_dir.z < 0.0) * EPSILON));
+
+            float s_lx = float(vmask & 1) * s_xmax + float(1 - (vmask & 1)) * s_xmin;
+            float s_ly = float(uint((vmask & 2) != 0)) * s_ymax
+                + float(1 - (uint((vmask & 2) != 0))) * s_ymin;
+            float s_lz = float(uint((vmask & 4) != 0)) * s_zmax
+                + (1 - float(uint((vmask & 4) != 0))) * s_zmin;
+
+            float s_ux = float(vmask & 1) * s_xmin + float(1 - (vmask & 1)) * s_xmax;
+            float s_uy = float(uint((vmask & 2) != 0)) * s_ymin
+                + float(1 - (uint((vmask & 2) != 0))) * s_ymax;
+            float s_uz = float(uint((vmask & 4) != 0)) * s_zmin
+                + float(1 - (uint((vmask & 4) != 0))) * s_zmax;
+
+            float s_lmax = max(s_lx, max(s_ly, s_lz));
+            float s_umin = min(s_ux, min(s_uy, s_uz));
+
+            bool is_hit = s_lmax < s_umin;
+
+            float distance = (float(uint(s_lmax > 0.0)) * s_lmax
+                + float(uint(s_lmax < 0.0)) * s_umin)
+                * float(uint(is_hit));
+
+            vec3 box_mid = (box_min + box_max) / 2.0;
+
+            if(!is_hit){
+                stackindex -= 1;
+                continue;
+            }
+
+            if((get_voxel_flags(root_node) & 1) != 0 && distance > 0.0) {
+                vec3 hitlocation = ray_start + (ray_dir * distance);
+                return RayResult(
+                    hitlocation,
+                    normalize(biggest_axis(hitlocation - box_mid)),
+                    ray_dir,
+                    distance,
+                    specular,
+                    root_node
+                );
+            }
+
+            float s_xmid = (box_mid.x - ray_start.x) / ray_dir.x;
+            float s_ymid = (box_mid.y - ray_start.y) / ray_dir.y;
+            float s_zmid = (box_mid.z - ray_start.z) / ray_dir.z;
+
+            uint[3] masklist = uint[3](1, 2, 4);
+            float[3] vallist = float[3](s_xmid, s_ymid, s_zmid);
+                if(vallist[0] > vallist[1]) {
+                    float temp = vallist[1];
+                    vallist[1] = vallist[0];
+                    vallist[0] = temp;
+                    uint temp2 = masklist[1];
+                    masklist[1] = masklist[0];
+                    masklist[0] = temp2;
+                }
+                if(vallist[1] > vallist[2]) {
+                    float temp = vallist[2];
+                    vallist[2] = vallist[1];
+                    vallist[1] = temp;
+                    uint temp2 = masklist[2];
+                    masklist[2] = masklist[1];
+                    masklist[1] = temp2;
+
+                    if(vallist[0] > vallist[1]) {
+                        float temp3 = vallist[1];
+                        vallist[1] = vallist[0];
+                        vallist[0] = temp3;
+
+                        uint temp4 = masklist[1];
+                        masklist[1] = masklist[0];
+                        masklist[0] = temp4;
+                    }
+                }
+
+            uint childmask = uint(s_xmid < s_lmax)
+                | (uint(s_ymid < s_lmax) << 1)
+                | (uint(s_zmid < s_lmax) << 2);
+
+            uint lastmask = uint(s_xmid < s_umin)
+                | (uint(s_ymid < s_umin) << 1)
+                | (uint(s_zmid < s_umin) << 2);
+
+            uint childcount = 0;
+            uint[4] children; //
+            uint _child = childmask ^ vmask;
+            if((get_voxel_childmask(root_node) & (1 << _child)) != 0) {
+                children[0] = _child;
+                childcount += 1;
+            }
+
+            for(uint x = 0; x < 3; x++){
+                if((childmask & masklist[x]) == 0){
+                    childmask |= masklist[x];
+                    uint child = childmask ^ vmask;
+                    if((get_voxel_childmask(root_node) & (1 << child)) == 0){
+                        continue;
+                    }
+                    children[childcount] = child;
+                    childcount += 1;
+                    if(childmask == lastmask){
+                        break;
+                    }
                 }
             }
-        }
-		frames[i].subnode++;
-
-		if(stackindex >= stacksize){
-			stackindex--;
-		}
+            stack[stackindex].childcount = childcount;
+            stack[stackindex].children = children;
+            stack[stackindex].current_child = 0;
+            stack[stackindex].should_init = false;
+        
     }
-    return closestleaf;
+
+    return RayResult(
+        vec3(0.0),
+        vec3(0.0, 0.0, 0.0),
+        vec3(0.0),
+        0.0,
+        0,
+        0
+    );
 }
 
 const uint RBC = 4; // + 1
@@ -861,6 +1011,8 @@ vec3 calculate_colour(RayResult t, vec3 nc, float ns){
 
     colour *= length(t.hitnormal);
 
+//colour = vec3(t.t);
+
     return colour;
 }
 
@@ -872,16 +1024,17 @@ void main() {
 
     RayResult groups[RBC];
 
+
         vec2 randcoord = coords + (pixelsize * rand2(coords, gl_GlobalInvocationID.z, pc.framenum, imageSize(img).z, 100).xy);
         vec3 raydir = ((randcoord.x * 2.0 - 1.0) * vec3(pc.right)) + ((randcoord.y * 2.0 - 1.0) * vec3(pc.up)) + vec3(pc.forward);
         vec3 start =  vec3(pc.campos);
 
-        groups[0] = cast_ray_voxel(start, normalize(raydir), 1, 0);
+        groups[0] = cast_ray_voxel(start, normalize(raydir), 1, 1.0, vec3(0.0), 0);
 
         if(length(groups[0].hitnormal) < EPSILON){
-imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(0.0,0.0,0.0,1.0));
-return;
-}
+            imageStore(img, ivec3(gl_GlobalInvocationID.xyz), vec4(0.0,0.0,0.0,1.0));
+            return;
+        }
 
         for(uint g = 1; g < RBC; g++){
             float roughness = get_voxel_roughness(groups[g-1].node);
@@ -890,7 +1043,7 @@ return;
             vec3 newdir=rand_dir_from_surf(groups[g-1].hitnormal, rand2(rand(randcoord).xz, gl_GlobalInvocationID.z, pc.framenum + 3 * g, imageSize(img).z, 103).yw);
 
             vec3 specdir=(roughness * newdir) + ((1.0 - roughness) * reflectvec(groups[g-1].raydir, groups[g-1].hitnormal));
-            groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), normalize((newdir * (1.0-specular)) + (specdir * specular)), 1, specular);
+            groups[g] = cast_ray_voxel(groups[g-1].hitlocation + ((EPSILON * 2) * groups[g-1].hitnormal), normalize((newdir * (1.0-specular)) + (specdir * specular)), 1, 1.0, vec3(0.0), specular);
         }
         vec3[RBC] colours;
         colours[RBC - 1]= calculate_colour(groups[RBC-1], vec3(0.0), 0.0);
@@ -1231,14 +1384,14 @@ void main() {
                     .unwrap()
                     .clone(),
             )
-                .add_image(imagecombines[i].clone())
-                .unwrap()
-                .add_image(outimages[i].clone())
-                .unwrap()
-                .add_image(bloomimages[i].clone())
-                .unwrap()
-                .build()
-                .unwrap(),
+            .add_image(imagecombines[i].clone())
+            .unwrap()
+            .add_image(outimages[i].clone())
+            .unwrap()
+            .add_image(bloomimages[i].clone())
+            .unwrap()
+            .build()
+            .unwrap(),
         ));
     }
     let mut set5 = Vec::new();
@@ -1251,12 +1404,12 @@ void main() {
                     .unwrap()
                     .clone(),
             )
-                .add_image(bloomimages[i].clone())
-                .unwrap()
-                .add_image(bloomimages2[i].clone())
-                .unwrap()
-                .build()
-                .unwrap(),
+            .add_image(bloomimages[i].clone())
+            .unwrap()
+            .add_image(bloomimages2[i].clone())
+            .unwrap()
+            .build()
+            .unwrap(),
         ));
     }
     let mut set6 = Vec::new();
@@ -1269,12 +1422,12 @@ void main() {
                     .unwrap()
                     .clone(),
             )
-                .add_image(bloomimages2[i].clone())
-                .unwrap()
-                .add_image(outimages[i].clone())
-                .unwrap()
-                .build()
-                .unwrap(),
+            .add_image(bloomimages2[i].clone())
+            .unwrap()
+            .add_image(outimages[i].clone())
+            .unwrap()
+            .build()
+            .unwrap(),
         ));
     }
     use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
@@ -1638,14 +1791,14 @@ void main() {
                 [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                 compute_pipeline5.clone(),
                 (set5[image_num].clone()),
-                (WIDTH/12),
+                (WIDTH / 12),
             )
             .unwrap()
             .dispatch(
                 [(WIDTH / 8) as u32, (HEIGHT / 8) as u32, 1],
                 compute_pipeline6.clone(),
                 (set6[image_num].clone()),
-                (WIDTH /12),
+                (WIDTH / 12),
             )
             .unwrap()
             .copy_image(

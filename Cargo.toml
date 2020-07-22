@@ -19,7 +19,7 @@ crossvulkan = { path = "../crossvulkan", features = ["vulkano-support"] }
 
 
 [lib]
-name = "lib"
+name = "svdag"
 path = "src/lib.rs"
 
 [[bin]]

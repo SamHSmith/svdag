@@ -137,9 +137,9 @@ impl DenseVoxelData {
                 let childptr = tree.allocate_node();
                 tree.get_node(node).put_child(i, childptr);
 
-                let mut loc: Vector3<f64> = oct_byte_to_vec(1u8 << i);
+                let mut loc: Vector3<f64> = oct_byte_to_vec(i);
                 loc *= 2.0;
-
+                
                 child_hashes[i as usize] = do_child(
                     s,
                     level + 1,
