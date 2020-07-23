@@ -182,7 +182,7 @@ fn main() {
 
     //test code
     use crate::dense::*;
-    let mut dense = DenseVoxelData::new(5);
+    let mut dense = DenseVoxelData::new(3);
     dense.access_mut(0, 5, 7).flags = 1;
     dense.access_mut(0, 5, 7).colour = [20, 70, 200];
     dense.access_mut(0, 5, 7).emission = 112;
@@ -790,7 +790,7 @@ uint get_voxel_child(uint voxelptr, uint childindex){
     }
 }
 
-const uint stacksize = 20;
+const uint stacksize = 4;
 
 struct StackFrame {
     uint node;
