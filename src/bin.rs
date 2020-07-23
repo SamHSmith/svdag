@@ -813,6 +813,18 @@ struct RayResult{
 
 RayResult cast_ray_voxel(vec3 ray_start, vec3 ray_dir, uint _node, float _size, vec3 _pos, float specular) {
 
+    vec3 inv_ray_dir = vec3(1.0) / ( ray_dir +
+                            vec3((float(ray_dir.x >= 0.0) * EPSILON) - (float(ray_dir.x < 0.0) * EPSILON),
+                            (float(ray_dir.y >= 0.0) * EPSILON) - (float(ray_dir.y < 0.0) * EPSILON),
+                            (float(ray_dir.z >= 0.0) * EPSILON) - (float(ray_dir.z < 0.0) * EPSILON)));
+
+uint vmask = uint(ray_dir.x < 0.0)
+                | (uint(ray_dir.y < 0.0) << 1)
+                | (uint(ray_dir.z < 0.0) << 2);
+
+vec3 vmask_1 = vec3((vmask & 1) !=0, (vmask & 2) != 0, (vmask & 4) != 0);
+vec3 vmask_0 = vec3((vmask & 1) ==0, (vmask & 2) == 0, (vmask & 4) == 0);
+
     int stackindex = 0;
     StackFrame stack[stacksize];
 
@@ -853,9 +865,6 @@ if(stack[stackindex].current_child >= stack[stackindex].childcount) {
         continue;
         }
             uint root_node = stack[stackindex].node;
-            uint vmask = uint(ray_dir.x < 0.0)
-                | (uint(ray_dir.y < 0.0) << 1)
-                | (uint(ray_dir.z < 0.0) << 2);
 
             vec3 box_min = vec3(
                 -stack[stackindex].size
@@ -864,28 +873,19 @@ if(stack[stackindex].current_child >= stack[stackindex].childcount) {
                 stack[stackindex].size
             ) + stack[stackindex].pos;
 
-            float s_xmin = (box_min.x - ray_start.x) / (ray_dir.x + (float(ray_dir.x > 0.0) * EPSILON) - (float(ray_dir.x < 0.0) * EPSILON));
-            float s_ymin = (box_min.y - ray_start.y) / (ray_dir.y + (float(ray_dir.y > 0.0) * EPSILON) - (float(ray_dir.y < 0.0) * EPSILON));
-            float s_zmin = (box_min.z - ray_start.z) / (ray_dir.z + (float(ray_dir.z > 0.0) * EPSILON) - (float(ray_dir.z < 0.0) * EPSILON));
 
-            float s_xmax = (box_max.x - ray_start.x) / (ray_dir.x + (float(ray_dir.x > 0.0) * EPSILON) - (float(ray_dir.x < 0.0) * EPSILON));
-            float s_ymax = (box_max.y - ray_start.y) / (ray_dir.y + (float(ray_dir.y > 0.0) * EPSILON) - (float(ray_dir.y < 0.0) * EPSILON));
-            float s_zmax = (box_max.z - ray_start.z) / (ray_dir.z + (float(ray_dir.z > 0.0) * EPSILON) - (float(ray_dir.z < 0.0) * EPSILON));
+            vec3 s_vmin = (box_min - ray_start) * inv_ray_dir;
 
-            float s_lx = float(vmask & 1) * s_xmax + float(1 - (vmask & 1)) * s_xmin;
-            float s_ly = float(uint((vmask & 2) != 0)) * s_ymax
-                + float(1 - (uint((vmask & 2) != 0))) * s_ymin;
-            float s_lz = float(uint((vmask & 4) != 0)) * s_zmax
-                + (1 - float(uint((vmask & 4) != 0))) * s_zmin;
+            vec3 s_vmax = (box_max - ray_start) * inv_ray_dir;
 
-            float s_ux = float(vmask & 1) * s_xmin + float(1 - (vmask & 1)) * s_xmax;
-            float s_uy = float(uint((vmask & 2) != 0)) * s_ymin
-                + float(1 - (uint((vmask & 2) != 0))) * s_ymax;
-            float s_uz = float(uint((vmask & 4) != 0)) * s_zmin
-                + float(1 - (uint((vmask & 4) != 0))) * s_zmax;
+            vec3 s_lv = (vmask_1 * s_vmax) +
+                        (vmask_0 * s_vmin);
 
-            float s_lmax = max(s_lx, max(s_ly, s_lz));
-            float s_umin = min(s_ux, min(s_uy, s_uz));
+            vec3 s_uv = (vmask_1 * s_vmin) +
+                        (vmask_0 * s_vmax);
+
+            float s_lmax = max(s_lv.x, max(s_lv.y, s_lv.z));
+            float s_umin = min(s_uv.x, min(s_uv.y, s_uv.z));
 
             bool is_hit = s_lmax < s_umin;
 
@@ -912,12 +912,10 @@ if(stack[stackindex].current_child >= stack[stackindex].childcount) {
                 );
             }
 
-            float s_xmid = (box_mid.x - ray_start.x) / ray_dir.x;
-            float s_ymid = (box_mid.y - ray_start.y) / ray_dir.y;
-            float s_zmid = (box_mid.z - ray_start.z) / ray_dir.z;
+            vec3 s_vmid = (box_mid - ray_start) * inv_ray_dir;
 
             uint[3] masklist = uint[3](1, 2, 4);
-            float[3] vallist = float[3](s_xmid, s_ymid, s_zmid);
+            float[3] vallist = float[3](s_vmid.x, s_vmid.y, s_vmid.z);
                 if(vallist[0] > vallist[1]) {
                     float temp = vallist[1];
                     vallist[1] = vallist[0];
@@ -945,13 +943,13 @@ if(stack[stackindex].current_child >= stack[stackindex].childcount) {
                     }
                 }
 
-            uint childmask = uint(s_xmid < s_lmax)
-                | (uint(s_ymid < s_lmax) << 1)
-                | (uint(s_zmid < s_lmax) << 2);
+            uint childmask = uint(s_vmid.x < s_lmax)
+                | (uint(s_vmid.y < s_lmax) << 1)
+                | (uint(s_vmid.z < s_lmax) << 2);
 
-            uint lastmask = uint(s_xmid < s_umin)
-                | (uint(s_ymid < s_umin) << 1)
-                | (uint(s_zmid < s_umin) << 2);
+            uint lastmask = uint(s_vmid.x < s_umin)
+                | (uint(s_vmid.y < s_umin) << 1)
+                | (uint(s_vmid.z < s_umin) << 2);
 
             uint childcount = 0;
             uint[4] children; //
@@ -979,7 +977,6 @@ if(stack[stackindex].current_child >= stack[stackindex].childcount) {
             stack[stackindex].children = children;
             stack[stackindex].current_child = 0;
             stack[stackindex].should_init = false;
-        
     }
 
     return RayResult(
